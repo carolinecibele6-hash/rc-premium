@@ -1,0 +1,36 @@
+// Suponha que você já carregou a lista completa de séries da API e salvou em:
+let allSeriesGlobal = []; // Array gigante de objetos {name: "Nome", stream_id: 123, cover: "..."}
+
+// Função JS equivalente à sua lógica Python de filtrar nomes limpos
+function filtrarSeriesNaTV(termoBusca) {
+    const buscaLimpa = termoBusca.toLowerCase()
+        .replace("filmes", "")
+        .replace("movie", "")
+        .replace("series", "")
+        .replace("serie", "")
+        .strip();
+
+    // Regex JS para tentar isolar o nome base (similar ao seu re.split do Python)
+    // Remove S01, E01, 1x01, etc para pegar só o nome da obra
+    const regexLimpador = /\s(S\d+|Ep\d+|Temporada|\d+x\d+|\d+)/i;
+
+    const candidatos = new Set(); // Usar Set para evitar duplicatas automaticamente
+
+    allSeriesGlobal.forEach(serie => {
+        if (serie.name.toLowerCase().includes(buscaLimpa)) {
+            // Tenta extrair o nome base limpo
+            let nomeBase = serie.name.split(regexLimpador)[0].trim();
+            if (nomeBase) {
+                candidatos.add(nomeBase);
+            }
+        }
+    });
+
+    // Converte o Set de volta para Array e ordena
+    const listaNomesOrdenada = Array.from(candidatos).sort();
+
+    return listaNomesOrdenada; // Retorna a lista limpa para exibir na UI de busca
+}
+
+// ATENÇÃO: Se 'allSeriesGlobal' tiver 50.000 itens, esse loop vai travar a TV por alguns segundos.
+// POR ISSO O IDEAL É UM BACKEND FAZER ESSA PESQUISA.
