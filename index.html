@@ -42,6 +42,8 @@
             transform: scale(1.05);
             z-index: 50;
             box-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
+            /* OTIMIZAÇÃO DE RENDERIZAÇÃO */
+            will-change: transform;
         }
         
         /* CORREÇÃO DO PLAYER */
@@ -61,6 +63,7 @@
             top: 0 !important; left: 0 !important;
             width: 100vw !important; height: 100vh !important;
             z-index: 9999 !important;
+            background: #000;
         }
 
         .focused i, .focused span, .focused div { color: #000 !important; }
@@ -156,7 +159,13 @@
         /* Vid-box Base */
         .vid-box { width: 100%; height: 45vh; background: #000; position: relative; border-bottom: 2px solid #333; }
         
-        video { width: 100%; height: 100%; background: #000; object-fit: contain !important; }
+        /* OTIMIZAÇÃO GPU PARA VIDEO */
+        video { 
+            width: 100%; height: 100%; background: #000; 
+            object-fit: contain !important;
+            transform: translateZ(0); /* Força Aceleração GPU */
+            will-change: opacity, transform;
+        }
         
         .meta { padding: 30px; flex: 1; background: #080808; display: flex; flex-direction: column; overflow: hidden; }
         .meta-title { font-size: 24px; color: var(--gold); font-weight: 800; margin-bottom: 10px; }
@@ -281,12 +290,13 @@
         };
 
         var PlayerEngine = {
-            hls: null, video: null, url: null, retryCount: 0, monitorTimer: null, lastTime: 0, stallCount: 0,
+            hls: null, video: null, url: null, retryCount: 0, monitorTimer: null, lastTime: 0, stallCount: 0, recovering: false,
             init: function() { 
                 this.video = document.getElementById('player'); 
                 this.video.onerror = function() { PlayerEngine.recover(); };
             },
             play: function(url, isLive) {
+                this.recovering = false;
                 if(this.url === url && !this.video.paused) return;
                 this.stop(); this.url = url; this.retryCount = 0; this.stallCount = 0;
                 this.video.controls = false; 
@@ -313,14 +323,30 @@
             },
             startHls: function(url) {
                 if(this.hls) this.hls.destroy();
-                // CONFIGURAÇÃO BALANCEADA (COMPATIVEL COM PC E TV)
-                var config = { enableWorker:true, maxBufferLength:10, startLevel:-1, manifestLoadingTimeOut:15000 };
+                // --- CONFIGURAÇÃO ULTRA VELOZ E ESTÁVEL ---
+                var config = { 
+                    enableWorker: true, 
+                    maxBufferLength: 30, // Aumentado para 30s (estabilidade)
+                    maxMaxBufferLength: 60, 
+                    backBufferLength: 60, // Permite voltar um pouco sem travar
+                    startLevel: -1, 
+                    manifestLoadingTimeOut: 20000,
+                    fragLoadingTimeOut: 20000,
+                    levelLoadingTimeOut: 20000,
+                    enableSoftwareAES: false, // Performance
+                    capLevelToPlayerSize: true // Economiza GPU
+                };
                 this.hls = new Hls(config);
                 this.hls.loadSource(url);
                 this.hls.attachMedia(this.video);
                 this.hls.on(Hls.Events.MANIFEST_PARSED, function() { PlayerEngine.video.play().catch(function(e){}); });
                 this.hls.on(Hls.Events.ERROR, function(event, data) {
-                    if (data.fatal) { if(data.type === Hls.ErrorTypes.NETWORK_ERROR) PlayerEngine.hls.startLoad(); else PlayerEngine.recover(); }
+                    if (data.fatal) { 
+                        if(data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                             console.log("Network Error - Tentando recuperar...");
+                             PlayerEngine.hls.startLoad(); 
+                        } else PlayerEngine.recover(); 
+                    }
                 });
             },
             startMonitor: function() {
@@ -328,9 +354,10 @@
                 this.monitorTimer = setInterval(function() {
                     var v = PlayerEngine.video;
                     if(!v || !PlayerEngine.url || v.paused) return;
+                    // Detecção de congelamento
                     if(Math.abs(v.currentTime - PlayerEngine.lastTime) < 0.1) {
                         PlayerEngine.stallCount++;
-                        if(PlayerEngine.stallCount > 5) { 
+                        if(PlayerEngine.stallCount > 8) { // 8x2 = 16s tolerância antes de resetar
                             App.osd("RECONECTANDO..."); PlayerEngine.recover(); 
                         }
                     } else { PlayerEngine.stallCount = 0; PlayerEngine.lastTime = v.currentTime; }
@@ -338,21 +365,30 @@
             },
             stopMonitor: function() { if(this.monitorTimer) clearInterval(this.monitorTimer); },
             recover: function() {
+                this.recovering = true; // Marca que estamos recuperando
                 this.retryCount++;
-                if(this.retryCount > 8) { this.stop(); App.osd("FALHA DE SINAL"); return; }
-                setTimeout(function(){ 
-                    PlayerEngine.stop(); 
-                    setTimeout(function(){ 
-                        if(App.mode === 'live' || PlayerEngine.url.includes('.m3u8')) {
-                            var v = document.getElementById('player'); v.load(); PlayerEngine.play(PlayerEngine.url, true);
-                        }
-                    }, 500); 
-                }, 1000);
+                if(this.retryCount > 10) { this.stop(); App.osd("FALHA DE SINAL"); return; }
+                
+                // Tenta recarregar sem matar o player completamente para não sair do fullscreen
+                if(this.hls) {
+                    this.hls.recoverMediaError();
+                } else {
+                     // Recarrega nativo
+                     var curr = this.video.currentTime;
+                     this.video.load();
+                     this.video.play().then(function(){
+                         if(!App.mode==='live') PlayerEngine.video.currentTime = curr;
+                     }).catch(function(){});
+                }
             },
             stop: function() { 
                 this.stopMonitor(); 
                 if(this.hls) { this.hls.destroy(); this.hls = null; } 
-                if(this.video) { this.video.pause(); this.video.removeAttribute('src'); this.video.load(); } 
+                if(this.video) { 
+                    this.video.pause(); 
+                    this.video.removeAttribute('src'); 
+                    this.video.load(); 
+                } 
             }
         };
 
@@ -367,11 +403,20 @@
                     document.getElementById('i2').value = localStorage.getItem('rc_p');
                 }
                 PlayerEngine.init();
+                
+                // --- CORREÇÃO DO FULLSCREEN AO TRAVAR ---
                 document.getElementById('player').onended = function() { 
-                    if(App.mode==='series' && App.isFolder && App.idx < App.seriesEps.length-1) {
+                    // Só sai do fullscreen se NÃO for Live e NÃO estiver tentando recuperar
+                    if(App.mode === 'live' || PlayerEngine.recovering) {
+                        // Tenta dar play novamente ao invés de sair
+                        PlayerEngine.video.play().catch(function(){});
+                    } else if(App.mode==='series' && App.isFolder && App.idx < App.seriesEps.length-1) {
                         App.idx++; App.updateFocus(); App.playStream(App.seriesEps[App.idx]);
-                    } else App.exitFull(); 
+                    } else {
+                        App.exitFull(); 
+                    }
                 };
+
                 setInterval(this.updateClock, 1000);
                 this.updateClock();
                 this.updateFocus();
