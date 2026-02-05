@@ -3,18 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>R&C GOLD V41 - HYBRID TURBO</title>
+    <title>R&C GOLD - PHILCO EDITION</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
     <style>
-        /* --- TEMA R&C GOLD V41 UNIVERSAL --- */
+        /* --- TEMA R&C GOLD OTIMIZADO PARA TVS --- */
         :root { 
             --bg: #000000; 
             --gold: #FFD700; 
-            --card-bg: linear-gradient(145deg, #1a1a1a, #0d0d0d);
-            --focus-grad: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+            --card-bg: #1a1a1a; /* Removido gradiente para performance */
+            --focus-grad: #FFD700; /* Gradiente simples para performance */
         }
         
         * { margin: 0; padding: 0; box-sizing: border-box; outline: none; user-select: none; -webkit-tap-highlight-color: transparent; }
@@ -24,14 +24,20 @@
             color: #fff;
             font-family: 'Montserrat', sans-serif;
             width: 100vw; height: 100vh; overflow: hidden;
-            background-image: radial-gradient(circle at 50% 0%, #222 0%, #000 70%);
+            /* OTIMIZAÇÃO PHILCO: Fundo sólido economiza GPU */
+            background: #000;
+        }
+
+        /* AJUDA NAVEGAÇÃO NETRANGE/OPERA */
+        .focusable, .smart-card, .cat-item, .item, .btn, .power-btn {
+            nav-index: auto; nav-up: auto; nav-down: auto; nav-left: auto; nav-right: auto;
         }
 
         .hide { display: none !important; }
         .flex-center { display: flex; align-items: center; justify-content: center; }
         .layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; background: #000; }
 
-        /* CURSOR MÃOZINHA PARA PC */
+        /* CURSOR MÃOZINHA */
         button, .smart-card, .cat-item, .item, .power-btn, .key { cursor: pointer; }
 
         /* FOCO PADRÃO */
@@ -39,13 +45,13 @@
             border: 3px solid #fff !important;
             background: var(--focus-grad) !important;
             color: #000 !important;
-            transform: scale(1.05);
+            transform: scale(1.02); /* Scale menor para evitar lag */
             z-index: 50;
-            box-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
             will-change: transform;
         }
         
-        /* CORREÇÃO DO PLAYER */
+        /* CORREÇÃO DO PLAYER (PREVIEW) */
         #vid-box.focused {
             transform: none !important;
             border: 4px solid var(--gold) !important;
@@ -67,7 +73,7 @@
 
         .focused i, .focused span, .focused div { color: #000 !important; }
 
-        /* LOGIN RESPONSIVO */
+        /* LOGIN */
         .login-box { 
             width: 400px; max-width: 90%; padding: 40px; 
             background: #111; border: 1px solid #333; 
@@ -85,7 +91,6 @@
             justify-content: space-between;
         }
 
-        /* Ajustes Mobile Dashboard */
         @media (max-width: 768px) {
             #dash-layer { padding: 20px; }
             .dash-grid { flex-direction: column; gap: 20px; overflow-y: auto; }
@@ -94,7 +99,7 @@
             .col-cat { width: 30%; } 
             .col-list { width: 70%; border: none; }
             .col-play { position: fixed; bottom: 0; left: 0; width: 100%; height: auto; z-index: 100; border-top: 2px solid #333; }
-            .vid-box { height: 200px; }
+            .vid-box { height: 200px !important; }
             .meta { display: none; }
             #content-layer { flex-wrap: wrap; }
         }
@@ -155,15 +160,23 @@
 
         .col-play { flex: 1; background: #000; display: flex; flex-direction: column; position: relative; }
         
-        /* Vid-box Base */
-        .vid-box { width: 100%; height: 45vh; background: #000; position: relative; border-bottom: 2px solid #333; }
+        /* JANELINHA CORRIGIDA */
+        .vid-box { 
+            width: 100%; 
+            height: 45vh; 
+            background: #000; 
+            position: relative; 
+            border-bottom: 2px solid #333;
+            overflow: hidden; 
+        }
         
-        /* OTIMIZAÇÃO GPU PARA VIDEO */
         video { 
-            width: 100%; height: 100%; background: #000; 
-            object-fit: contain !important;
-            transform: translateZ(0); /* Força Aceleração GPU */
-            will-change: opacity, transform;
+            width: 100% !important; 
+            height: 100% !important; 
+            background: #000; 
+            object-fit: contain !important; /* Sem zoom */
+            outline: none;
+            border: none;
         }
         
         .meta { padding: 30px; flex: 1; background: #080808; display: flex; flex-direction: column; overflow: hidden; }
@@ -288,7 +301,7 @@
             isFav: function(id) { return this.list.indexOf(id) > -1; }
         };
 
-        // --- MOTOR HÍBRIDO (TURBO LIVE + VOD NATIVO) ---
+        // --- MOTOR HÍBRIDO OTIMIZADO PARA PHILCO ---
         var PlayerEngine = {
             hls: null, video: null, url: null, retryCount: 0, monitorTimer: null, lastTime: 0, stallCount: 0, 
             isRecovering: false, isHlsContent: false,
@@ -309,7 +322,6 @@
                 this.stallCount = 0;
                 this.video.controls = false; 
 
-                // Verifica se é conteúdo HLS (.m3u8) ou Arquivo Direto (.mp4, .mkv, etc)
                 this.isHlsContent = url.includes('.m3u8') || isLive;
 
                 if(isLive) {
@@ -321,13 +333,10 @@
 
                 this.startMonitor();
 
-                // --- LÓGICA DE DECISÃO DE PLAYER ---
                 if (this.isHlsContent && Hls.isSupported()) {
-                    // MODO 1: HLS.js (Para TV ao Vivo e Filmes m3u8)
                     console.log("Iniciando Modo HLS (Turbo)");
                     this.startHls(url, isLive); 
                 } else {
-                    // MODO 2: NATIVO (Para MP4, MKV, AVI - Filmes e Séries comuns)
                     console.log("Iniciando Modo Nativo (MP4/MKV)");
                     this.video.src = url;
                     this.video.play().catch(function(e){
@@ -339,22 +348,21 @@
             startHls: function(url, isLive) {
                 if(this.hls) this.hls.destroy();
 
+                // CONFIGURAÇÃO ULTRA LEVE PARA CPU DE TV
                 var config = { 
                     enableWorker: true,
-                    enableSoftwareAES: false,
+                    enableSoftwareAES: false, // Menos CPU
                     manifestLoadingTimeOut: 20000, 
+                    capLevelToPlayerSize: true // Economiza banda e GPU
                 };
 
                 if(isLive) {
-                    // --- MODO TURBO LIVE ---
                     config.liveSyncDurationCount = 2; 
                     config.maxMaxBufferLength = 10;   
                     config.startLevel = -1;
-                    config.liveMaxLatencyDurationCount = 10; 
                 } else {
-                    // --- MODO VOD HLS ---
-                    config.maxBufferLength = 30;
-                    config.maxMaxBufferLength = 60;
+                    config.maxBufferLength = 20; // Reduzido para economizar RAM
+                    config.maxMaxBufferLength = 40;
                 }
 
                 this.hls = new Hls(config);
@@ -370,7 +378,6 @@
                 this.hls.on(Hls.Events.ERROR, function(event, data) {
                     if (data.fatal) {
                         if(data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                             console.log("Rede instável, recuperando...");
                              PlayerEngine.hls.startLoad();
                         } else {
                              PlayerEngine.handleError();
@@ -385,13 +392,10 @@
                     var v = PlayerEngine.video;
                     if(!v || !PlayerEngine.url || v.paused) return;
 
-                    // Verifica se congelou
                     if(Math.abs(v.currentTime - PlayerEngine.lastTime) < 0.1) {
                         PlayerEngine.stallCount++;
-                        
                         if(PlayerEngine.stallCount >= 3) { 
                             if(App.mode === 'live' && PlayerEngine.isHlsContent) {
-                                // Recuperação de LIVE
                                 if(PlayerEngine.hls && PlayerEngine.hls.liveSyncPosition) {
                                     v.currentTime = PlayerEngine.hls.liveSyncPosition; 
                                 } else if(v.seekable.length > 0) {
@@ -399,9 +403,7 @@
                                 }
                                 PlayerEngine.stallCount = 0; 
                             } else {
-                                // Recuperação de VOD
                                 if(PlayerEngine.stallCount > 5) { 
-                                    console.log("VOD Travado - Tentando pular 5s");
                                     v.currentTime += 5;
                                     PlayerEngine.stallCount = 0;
                                 }
@@ -425,7 +427,6 @@
                 if(this.isRecovering) return;
                 this.isRecovering = true;
                 this.retryCount++;
-                console.log("Erro detectado. Tentativa: " + this.retryCount);
 
                 if(this.retryCount > 10) { 
                     this.stop(); 
@@ -437,7 +438,6 @@
                     this.hls.swapAudioCodec(); 
                     this.hls.recoverMediaError();
                 } else {
-                    // Recovery padrão (VOD Nativo)
                     var t = this.video.currentTime;
                     var src = this.video.src;
                     this.video.src = "";
@@ -447,7 +447,6 @@
                          if(t > 0) this.video.currentTime = t;
                     }).catch(e => {});
                 }
-
                 setTimeout(function(){ PlayerEngine.isRecovering = false; }, 3000);
             },
 
@@ -458,7 +457,11 @@
                     this.video.pause(); 
                     this.video.removeAttribute('src'); 
                     this.video.load(); 
+                    // LIMPEZA FORÇADA PARA NETRANGE/PHILCO
+                    this.video.innerHTML = ""; 
                 } 
+                // COLETA DE LIXO MANUAL (TVS)
+                if(window.gc) window.gc();
             }
         };
 
@@ -805,23 +808,27 @@
         document.addEventListener('keydown', function(e) {
             var k=e.keyCode;
             
+            // TECLAS ESPECIAIS PHILCO / NETRANGE
+            if(k === 10009 || k === 88) { e.preventDefault(); if(App.scr>0) App.back(); return; } // Back
+            if(k === 29443) { e.preventDefault(); App.enter(); return; } // Enter Especial
+            
             // --- CORREÇÃO IMPORTANTE DE INPUT ---
             if(document.activeElement.tagName === 'INPUT') {
                 if(App.scr === 0) {
-                    if(k === 13) { e.preventDefault(); App.login(); return; } 
+                    if(k === 13 || k === 29443) { e.preventDefault(); App.login(); return; } 
                     if(k === 40) { e.preventDefault(); App.move(1); return; } 
                     if(k === 38) { e.preventDefault(); App.move(0); return; } 
                     return; 
                 }
                 if(App.scr === 2) {
-                    if(k === 13) { App.doSearch(); return; } 
+                    if(k === 13 || k === 29443) { App.doSearch(); return; } 
                     if(k === 40) { e.preventDefault(); App.zone=2; App.idx=0; App.updateFocus(); return; } 
                     return; 
                 }
             }
 
             if(App.scr === 0) {
-                if(k===13) {
+                if(k===13 || k===29443) {
                     e.preventDefault(); 
                     if(App.idx === 3) {
                         document.activeElement.blur(); 
@@ -836,7 +843,7 @@
                 var v = document.getElementById('player');
                 if(k===39 || k===417) { v.currentTime += 30; App.osd(">> 30s"); return; } 
                 if(k===37 || k===412) { v.currentTime -= 30; App.osd("<< 30s"); return; } 
-                if(k===13 || k===415 || k===19 || k===179) { 
+                if(k===13 || k===415 || k===19 || k===179 || k===29443) { 
                    if(v.paused) { v.play(); App.osd("▶ PLAY"); } else { v.pause(); App.osd("⏸ PAUSE"); }
                    return;
                 }
@@ -845,13 +852,13 @@
             if(k===48 || k===96) { if(App.scr===2 && App.zone===2) { var it=App.fullData[App.idx]; if(it) FavManager.toggle(it.stream_id||it.series_id); } }
             if(document.getElementById('vid-box').classList.contains('fs')) { 
                 e.preventDefault(); 
-                if(k===13||k===403||k===82||k===27||k===461) App.toggleFull(); 
+                if(k===13||k===403||k===82||k===27||k===461||k===10009||k===29443) App.toggleFull(); 
                 return; 
             }
             
             if(k===37) { e.preventDefault(); App.move(2); } if(k===38) { e.preventDefault(); App.move(0); }
             if(k===39) { e.preventDefault(); App.move(3); } if(k===40) { e.preventDefault(); App.move(1); }
-            if(k===13) { e.preventDefault(); App.enter(); }
+            if(k===13 || k===29443) { e.preventDefault(); App.enter(); }
             if(k===8||k===27||k===461) { e.preventDefault(); if(App.scr>0) App.back(); }
             
             if(k===403||k===82) if(App.scr===2) App.toggleFull(); 
