@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>R&C GOLD</title>
+    <title>R&C GOLD - LIVE FIX</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
 
     <style>
-        /* --- TEMA ORIGINAL RESTAURADO (VISUAL PREMIUM) --- */
+        /* --- TEMA ORIGINAL MANTIDO --- */
         :root { 
             --bg: #000000; 
             --gold: #FFD700; 
@@ -31,10 +31,8 @@
         .flex-center { display: flex; align-items: center; justify-content: center; }
         .layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; background: #000; }
 
-        /* CURSOR MÃOZINHA PARA PC */
         button, .smart-card, .cat-item, .item, .power-btn, .key { cursor: pointer; }
 
-        /* FOCO PADRÃO (VOLTOU AO ORIGINAL COM SOMBRA FORTE) */
         .focused {
             border: 3px solid #fff !important;
             background: var(--focus-grad) !important;
@@ -44,7 +42,6 @@
             box-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
         }
         
-        /* CORREÇÃO DO PLAYER */
         #vid-box.focused {
             transform: none !important;
             border: 4px solid var(--gold) !important;
@@ -52,7 +49,6 @@
             z-index: 60;
         }
 
-        /* FULLSCREEN */
         #vid-box.fs, #vid-box.fs.focused {
             transform: none !important;
             border: none !important;
@@ -65,7 +61,6 @@
 
         .focused i, .focused span, .focused div { color: #000 !important; }
 
-        /* LOGIN RESPONSIVO */
         .login-box { 
             width: 400px; max-width: 90%; padding: 40px; 
             background: #111; border: 1px solid #333; 
@@ -76,14 +71,12 @@
         .inp { width: 100%; padding: 14px; margin: 10px 0; background: #222; border: 1px solid #444; color: #fff; text-align: center; font-weight: bold; border-radius: 6px; }
         .btn { width: 100%; padding: 14px; margin-top: 20px; background: var(--gold); color: #000; border: none; cursor: pointer; text-transform: uppercase; font-weight: 900; border-radius: 6px; }
 
-        /* DASHBOARD */
         #dash-layer { 
             display: flex; flex-direction: column; 
             padding: 40px 60px;
             justify-content: space-between;
         }
 
-        /* Ajustes Mobile Dashboard */
         @media (max-width: 768px) {
             #dash-layer { padding: 20px; }
             .dash-grid { flex-direction: column; gap: 20px; overflow-y: auto; }
@@ -135,7 +128,6 @@
         .lbl { font-size: 11px; color: #888; font-weight: 700; text-transform: uppercase; display: block; margin-bottom: 3px; }
         .val { font-size: 16px; color: var(--gold); font-weight: 800; }
 
-        /* CONTEÚDO */
         #content-layer { display: flex; }
         .col-cat { width: 25%; background: #0b0b0b; border-right: 1px solid #222; display: flex; flex-direction: column; }
         .cat-head { padding: 20px; background: #111; color: var(--gold); font-weight: 900; text-align: center; border-bottom: 2px solid var(--gold); }
@@ -153,9 +145,7 @@
 
         .col-play { flex: 1; background: #000; display: flex; flex-direction: column; position: relative; }
         
-        /* Vid-box Base */
         .vid-box { width: 100%; height: 45vh; background: #000; position: relative; border-bottom: 2px solid #333; }
-        
         video { width: 100%; height: 100%; background: #000; object-fit: contain !important; }
         
         .meta { padding: 30px; flex: 1; background: #080808; display: flex; flex-direction: column; overflow: hidden; }
@@ -280,92 +270,126 @@
             isFav: function(id) { return this.list.indexOf(id) > -1; }
         };
 
+        // --- PLAYER ENGINE HÍBRIDO (VOD SIMPLES / LIVE ROBUSTO) ---
         var PlayerEngine = {
-            hls: null, video: null, url: null, retryCount: 0, monitorTimer: null, lastTime: 0, stallCount: 0,
-            init: function() { 
-                this.video = document.getElementById('player'); 
-                this.video.onerror = function() { PlayerEngine.recover(); };
+            hls: null, video: null, url: null, isLive: false, stallTimeout: null, recoverAttempts: 0,
+            
+            init: function() {
+                this.video = document.getElementById('player');
+                var newVideo = this.video.cloneNode(true);
+                this.video.parentNode.replaceChild(newVideo, this.video);
+                this.video = newVideo;
+                
+                // Monitoramento apenas para Live
+                this.video.addEventListener('error', function(e) { PlayerEngine.handleError(e); });
+                this.video.addEventListener('waiting', function() { if(PlayerEngine.isLive) PlayerEngine.onStall(); });
+                this.video.addEventListener('playing', function() { if(PlayerEngine.isLive) PlayerEngine.onPlay(); });
             },
+
             play: function(url, isLive) {
-                if(this.url === url && !this.video.paused) return;
-                this.stop(); this.url = url; this.retryCount = 0; this.stallCount = 0;
-                this.video.controls = false; 
-                if(isLive) {
-                    this.video.classList.add('live');
-                    if(url.indexOf('.m3u8') === -1 && url.indexOf('.ts') > -1) url = url.replace('.ts', '.m3u8');
-                } else this.video.classList.remove('live');
-
-                if(isLive || url.includes('.m3u8')) this.startMonitor();
-
-                // Tentativa Nativa Otimizada
-                var canPlayNative = this.video.canPlayType('application/vnd.apple.mpegurl');
-                if (canPlayNative === "probably" || canPlayNative === "maybe") {
-                    this.video.src = url; 
-                    this.video.play().catch(function(e){ 
-                        if(Hls.isSupported()) PlayerEngine.startHls(url); 
-                    });
-                } else if (Hls.isSupported()) {
-                    this.startHls(url);
-                } else {
-                    this.video.src = url; 
+                this.stop(); 
+                this.url = url;
+                this.isLive = isLive;
+                this.recoverAttempts = 0;
+                this.video.controls = false;
+                
+                // MODO 1: FILMES E SÉRIES (NATIVO SIMPLES - NÃO MEXE)
+                // Se não for Live, apenas toca o arquivo MP4/MKV.
+                if (!isLive && url.indexOf('.m3u8') === -1) {
+                    this.video.classList.remove('live');
+                    console.log("[Engine] VOD Mode (Nativo):", url);
+                    this.video.src = url;
                     this.video.play().catch(e => console.log(e));
+                    return; 
+                }
+
+                // MODO 2: TV AO VIVO (PROTOCOLO DE ENGENHARIA ATIVADO)
+                this.video.classList.add('live');
+                if(url.indexOf('.m3u8') === -1 && url.indexOf('.ts') > -1) url = url.replace('.ts', '.m3u8');
+                console.log("[Engine] Live Mode (Robust HLS):", url);
+
+                if (Hls.isSupported()) {
+                    this.startRobustHls(url);
+                } else {
+                    // Fallback para Tizen/WebOS nativos se não suportar Hls.js
+                    this.video.src = url;
+                    this.video.play();
                 }
             },
-            startHls: function(url) {
+
+            startRobustHls: function(url) {
                 if(this.hls) this.hls.destroy();
-                // --- MANTIVE A CONFIGURAÇÃO TURBO PARA FUTEBOL ---
-                var config = { 
-                    enableWorker: true, 
-                    maxBufferLength: 30, // Buffer alto para TV Philco
-                    maxMaxBufferLength: 60,
-                    startLevel: -1, 
-                    manifestLoadingTimeOut: 20000,
-                    capLevelToPlayerSize: true 
+                
+                // CONFIGURAÇÃO ANTITRAVAMENTO PARA LIVE
+                var config = {
+                    enableWorker: true,
+                    startLevel: -1,
+                    maxBufferLength: 10, // Buffer curto para não estourar RAM
+                    maxMaxBufferLength: 20, 
+                    maxBufferHole: 0.5,
+                    manifestLoadingTimeOut: 15000,
+                    liveSyncDurationCount: 3,
                 };
+
                 this.hls = new Hls(config);
                 this.hls.loadSource(url);
                 this.hls.attachMedia(this.video);
                 this.hls.on(Hls.Events.MANIFEST_PARSED, function() { PlayerEngine.video.play().catch(function(e){}); });
+
+                // Recuperação Silenciosa
                 this.hls.on(Hls.Events.ERROR, function(event, data) {
-                    if (data.fatal) { 
-                        if(data.type === Hls.ErrorTypes.NETWORK_ERROR) PlayerEngine.hls.startLoad(); else PlayerEngine.recover(); 
+                    if (data.fatal) {
+                        if(data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                            console.log("[HLS] Erro de Mídia -> Recuperando...");
+                            PlayerEngine.hls.recoverMediaError();
+                        } else {
+                            console.log("[HLS] Erro Fatal -> Reiniciando...");
+                            PlayerEngine.hardReload();
+                        }
                     }
                 });
             },
-            startMonitor: function() {
-                this.stopMonitor();
-                this.monitorTimer = setInterval(function() {
-                    var v = PlayerEngine.video;
-                    if(!v || !PlayerEngine.url || v.paused) return;
-                    if(Math.abs(v.currentTime - PlayerEngine.lastTime) < 0.1) {
-                        PlayerEngine.stallCount++;
-                        if(PlayerEngine.stallCount > 5) { 
-                            App.osd("RECONECTANDO..."); PlayerEngine.recover(); 
-                        }
-                    } else { PlayerEngine.stallCount = 0; PlayerEngine.lastTime = v.currentTime; }
-                }, 2000);
+
+            onStall: function() {
+                // Só ativa no modo LIVE
+                if(this.stallTimeout) clearTimeout(this.stallTimeout);
+                this.stallTimeout = setTimeout(function() {
+                    console.log("[Engine] Travou Live > 15s. Reload.");
+                    App.osd("RECONECTANDO...");
+                    PlayerEngine.hardReload();
+                }, 15000); 
             },
-            stopMonitor: function() { if(this.monitorTimer) clearInterval(this.monitorTimer); },
-            recover: function() {
-                this.retryCount++;
-                if(this.retryCount > 8) { this.stop(); App.osd("FALHA DE SINAL"); return; }
-                setTimeout(function(){ 
-                    PlayerEngine.stop(); 
-                    setTimeout(function(){ 
-                        if(App.mode === 'live' || PlayerEngine.url.includes('.m3u8')) {
-                            var v = document.getElementById('player'); v.load(); PlayerEngine.play(PlayerEngine.url, true);
-                        }
-                    }, 500); 
-                }, 1000);
+
+            onPlay: function() {
+                if(this.stallTimeout) { clearTimeout(this.stallTimeout); this.stallTimeout = null; }
+                App.osd(""); document.getElementById('osd').style.display = 'none';
+                this.recoverAttempts = 0;
             },
-            stop: function() { 
-                this.stopMonitor(); 
-                if(this.hls) { this.hls.destroy(); this.hls = null; } 
+
+            handleError: function(e) {
+                // Erro genérico do elemento de vídeo
+                if(this.isLive) this.hardReload();
+            },
+
+            hardReload: function() {
+                if(!this.isLive) return; // Não recarrega VOD agressivamente
+                this.recoverAttempts++;
+                if(this.recoverAttempts > 5) { App.osd("FALHA NO CANAL"); this.stop(); return; }
+                
+                var delay = Math.pow(2, this.recoverAttempts) * 1000;
+                this.stop(true);
+                setTimeout(function() { if(PlayerEngine.url) PlayerEngine.play(PlayerEngine.url, true); }, delay);
+            },
+
+            stop: function(isRestarting) {
+                if(this.stallTimeout) clearTimeout(this.stallTimeout);
+                if(this.hls) { this.hls.destroy(); this.hls = null; }
                 if(this.video) { 
                     this.video.pause(); 
-                    this.video.removeAttribute('src'); // Limpeza de memoria importante
+                    this.video.removeAttribute('src'); 
                     this.video.load(); 
                 } 
+                if(!isRestarting) { this.url = null; this.isLive = false; }
             }
         };
 
@@ -392,8 +416,7 @@
 
             updateClock: function() {
                 var now = new Date();
-                var h = now.getHours(); var m = now.getMinutes();
-                if(m<10) m='0'+m;
+                var h = now.getHours(); var m = now.getMinutes(); if(m<10) m='0'+m;
                 var strTime = h + ":" + m;
                 var strDate = now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
                 var elT = document.getElementById('clock-time'); if(elT) elT.innerText = strTime;
@@ -411,19 +434,13 @@
                 var h = document.getElementById('i0').value.trim();
                 var u = document.getElementById('i1').value.trim();
                 var p = document.getElementById('i2').value.trim();
-                
                 if(h.endsWith('/')) h = h.slice(0, -1);
                 if(h.indexOf('http') === -1) h = 'http://' + h;
-                
                 document.getElementById('loader').classList.remove('hide');
                 document.getElementById('load-txt').innerText = "CONECTANDO...";
-                
                 this.req(h+"/player_api.php?username="+u+"&password="+p, function(d){
                     document.getElementById('loader').classList.add('hide');
-                    if(d === 'ERR_NET') {
-                        document.getElementById('msg-login').innerHTML = "Falha de Conexão!<br>Se for PC, instale extensão CORS.";
-                        return;
-                    }
+                    if(d === 'ERR_NET') { document.getElementById('msg-login').innerHTML = "Falha de Conexão!<br>CORS necessário."; return; }
                     if(d && d.user_info && d.user_info.auth==1) {
                         App.creds={h:h,u:u,p:p};
                         localStorage.setItem('rc_h', h); localStorage.setItem('rc_u', u); localStorage.setItem('rc_p', p);
@@ -433,7 +450,7 @@
                         document.getElementById('info-exp').innerText = exp;
                         document.getElementById('info-conn').innerText = conn;
                         App.setScr(1);
-                    } else document.getElementById('msg-login').innerText="Usuário/Senha Inválidos";
+                    } else document.getElementById('msg-login').innerText="Inválido";
                 });
             },
             logout: function() { localStorage.clear(); location.reload(); },
@@ -452,7 +469,6 @@
                 this.mode = m; this.setScr(2); this.isFolder = false; this.globalData = null; this.playingId = null;
                 document.getElementById('cat-list').innerHTML = ''; document.getElementById('item-list').innerHTML = '';
                 document.getElementById('loader').classList.remove('hide');
-                
                 document.getElementById('search').value = '';
 
                 var act = (m==='live')?'get_live_categories':(m==='movie'?'get_vod_categories':'get_series_categories');
@@ -483,9 +499,7 @@
                 var cid = el.getAttribute('data-id');
                 document.querySelectorAll('.cat-item').forEach(function(e){e.classList.remove('active')});
                 el.classList.add('active');
-                
                 document.getElementById('search').value = '';
-
                 document.getElementById('loader').classList.remove('hide');
                 document.getElementById('item-list').innerHTML = '';
 
@@ -518,7 +532,6 @@
                     h += '<div class="item" id="row-'+i+'" onclick="App.itemClick('+i+')">'+n+icn+'</div>';
                 }
                 document.getElementById('item-list').innerHTML = h;
-                
                 this.zone = 2;
                 if(!keepIdx) { this.idx = 0; }
                 this.updateFocus();
@@ -576,7 +589,6 @@
                 }
             },
 
-            // --- RESTAURADO: PESQUISA MANUAL (SEM TIMER) ---
             doSearch: function() {
                 var t = document.getElementById('search').value.toLowerCase();
                 if(t.length < 2) return;
@@ -586,10 +598,7 @@
                         App.fullData = d.filter(function(x){ return (x.name||x.title||"").toLowerCase().indexOf(t) > -1 }); 
                         App.isFolder = false; 
                         App.renderList(); 
-                        
-                        App.zone = 2; 
-                        App.idx = 0; 
-                        App.updateFocus();
+                        App.zone = 2; App.idx = 0; App.updateFocus();
                     }
                 };
                 if(App.globalData) cb(App.globalData);
@@ -602,10 +611,7 @@
             toggleFull: function() {
                 var b = document.getElementById('vid-box'); if(b.classList.contains('fs')) this.exitFull(); else { b.classList.add('fs'); App.osd("TELA CHEIA"); }
             },
-            exitFull: function() { 
-                document.getElementById('vid-box').classList.remove('fs'); 
-                this.syncFocusToPlaying();
-            },
+            exitFull: function() { document.getElementById('vid-box').classList.remove('fs'); this.syncFocusToPlaying(); },
             osd: function(t) { var o=document.getElementById('osd'); o.innerText=t; o.style.display='block'; setTimeout(function(){o.style.display='none'},2000); },
             
             back: function() {
@@ -633,13 +639,9 @@
                 }
                 if(el) {
                     el.classList.add('focused'); 
-                    if(el.tagName==='INPUT') { 
-                        el.focus(); 
-                    } else { 
-                        document.getElementById('i0').blur();
-                        document.getElementById('i1').blur();
-                        document.getElementById('i2').blur();
-                        document.getElementById('search').blur();
+                    if(el.tagName==='INPUT') el.focus(); 
+                    else { 
+                        document.getElementById('i0').blur(); document.getElementById('i1').blur(); document.getElementById('i2').blur(); document.getElementById('search').blur();
                         el.focus(); 
                     }
                     if(el.tagName!=='INPUT') el.scrollIntoView({block:'center',behavior:'smooth'}); 
@@ -648,36 +650,20 @@
             move: function(d) {
                 if(this.scr===0) { if(d===1&&this.idx<3) this.idx++; if(d===0&&this.idx>0) this.idx--; }
                 if(this.scr===1) { 
-                    if(this.idx <= 2) { 
-                        if(d===3 && this.idx<2) this.idx++; 
-                        if(d===2 && this.idx>0) this.idx--; 
-                        if(d===0) { this.idx = 3; } 
-                    }
-                    else if(this.idx === 3) { 
-                        if(d===1) { this.idx = 1; } 
-                    }
+                    if(this.idx <= 2) { if(d===3 && this.idx<2) this.idx++; if(d===2 && this.idx>0) this.idx--; if(d===0) { this.idx = 3; } }
+                    else if(this.idx === 3) { if(d===1) { this.idx = 1; } }
                 }
                 if(this.scr===2) {
-                    if(this.zone===3) { 
-                        if(d===2) { 
-                            this.zone=2; 
-                            this.syncFocusToPlaying(); 
-                            this.updateFocus(); 
-                        } return; 
-                    }
+                    if(this.zone===3) { if(d===2) { this.zone=2; this.syncFocusToPlaying(); this.updateFocus(); } return; }
                     if(this.zone===0) { 
                         var max = document.getElementById('cat-list').children.length-1;
-                        if(d===1 && this.idx<max) this.idx++;
-                        if(d===0 && this.idx>0) this.idx--;
+                        if(d===1 && this.idx<max) this.idx++; if(d===0 && this.idx>0) this.idx--;
                         if(d===3 && App.fullData.length>0) { this.zone=2; this.idx=0; }
                     }
                     else if(this.zone===2) { 
                         var max = document.getElementById('item-list').children.length-1;
                         if(d===1 && this.idx<max) this.idx++; 
-                        else if(d===0) { 
-                            if(this.idx > 0) this.idx--; 
-                            else this.zone = 1; 
-                        }
+                        else if(d===0) { if(this.idx > 0) this.idx--; else this.zone = 1; }
                         else if(d===2) { this.zone=0; this.idx=this.lastCatIdx; } 
                         else if(d===3) this.zone=3; 
                     }
@@ -690,25 +676,18 @@
             },
             enter: function() {
                 if(this.scr===0) this.login();
-                if(this.scr===1) { 
-                    if(this.idx === 3) this.logout();
-                    else this.openMode(['live','movie','series'][this.idx]); 
-                }
+                if(this.scr===1) { if(this.idx === 3) this.logout(); else this.openMode(['live','movie','series'][this.idx]); }
                 if(this.scr===2) {
                     if(this.zone===0) this.loadContent(this.idx);
                     if(this.zone===1) this.doSearch();
                     if(this.zone===2) this.clickItem();
-                    if(this.zone===3) {
-                        this.toggleFull(); 
-                    }
+                    if(this.zone===3) this.toggleFull(); 
                 }
             }
         };
 
         document.addEventListener('keydown', function(e) {
             var k=e.keyCode;
-            
-            // --- INPUT RESTAURADO (MANUAL) ---
             if(document.activeElement.tagName === 'INPUT') {
                 if(App.scr === 0) {
                     if(k === 13) { e.preventDefault(); App.login(); return; } 
@@ -716,35 +695,20 @@
                     if(k === 38) { e.preventDefault(); App.move(0); return; } 
                     return; 
                 }
-                // Na busca: Enter para buscar, Seta Baixo para sair
                 if(App.scr === 2) {
                     if(k === 13) { App.doSearch(); return; } 
                     if(k === 40) { e.preventDefault(); App.zone=2; App.idx=0; App.updateFocus(); return; } 
                     return; 
                 }
             }
-            // ------------------------------------
-
-            if(App.scr === 0) {
-                if(k===13) {
-                    e.preventDefault(); 
-                    if(App.idx === 3) {
-                        document.activeElement.blur(); 
-                        App.login();
-                    }
-                    return;
-                }
-            }
+            if(App.scr === 0 && k===13) { e.preventDefault(); if(App.idx === 3) { document.activeElement.blur(); App.login(); } return; }
 
             // CONTROLES VOD 
             if(App.scr===2 && App.mode!=='live' && document.getElementById('vid-box').classList.contains('fs')) {
                 var v = document.getElementById('player');
                 if(k===39 || k===417) { v.currentTime += 30; App.osd(">> 30s"); return; } 
                 if(k===37 || k===412) { v.currentTime -= 30; App.osd("<< 30s"); return; } 
-                if(k===13 || k===415 || k===19 || k===179) { 
-                   if(v.paused) { v.play(); App.osd("▶ PLAY"); } else { v.pause(); App.osd("⏸ PAUSE"); }
-                   return;
-                }
+                if(k===13 || k===415 || k===19 || k===179) { if(v.paused) { v.play(); App.osd("▶ PLAY"); } else { v.pause(); App.osd("⏸ PAUSE"); } return; }
             }
 
             if(k===48 || k===96) { if(App.scr===2 && App.zone===2) { var it=App.fullData[App.idx]; if(it) FavManager.toggle(it.stream_id||it.series_id); } }
@@ -753,12 +717,10 @@
                 if(k===13||k===403||k===82||k===27||k===461) App.toggleFull(); 
                 return; 
             }
-            
             if(k===37) { e.preventDefault(); App.move(2); } if(k===38) { e.preventDefault(); App.move(0); }
             if(k===39) { e.preventDefault(); App.move(3); } if(k===40) { e.preventDefault(); App.move(1); }
             if(k===13) { e.preventDefault(); App.enter(); }
             if(k===8||k===27||k===461) { e.preventDefault(); if(App.scr>0) App.back(); }
-            
             if(k===403||k===82) if(App.scr===2) App.toggleFull(); 
             if(k===404||k===71) if(App.scr===2) { App.zone=0; App.idx=0; App.updateFocus(); } 
             if(k===405||k===89) if(App.scr===2) { App.zone=1; App.updateFocus(); } 
