@@ -9,11 +9,11 @@
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
     <style>
-        /* --- TEMA R&C GOLD --- */
+        /* --- TEMA ORIGINAL RESTAURADO (VISUAL PREMIUM) --- */
         :root { 
             --bg: #000000; 
             --gold: #FFD700; 
-            --card-bg: #1a1a1a;
+            --card-bg: linear-gradient(145deg, #1a1a1a, #0d0d0d);
             --focus-grad: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
         }
         
@@ -24,27 +24,27 @@
             color: #fff;
             font-family: 'Montserrat', sans-serif;
             width: 100vw; height: 100vh; overflow: hidden;
-            background: #000;
+            background-image: radial-gradient(circle at 50% 0%, #222 0%, #000 70%);
         }
 
         .hide { display: none !important; }
         .flex-center { display: flex; align-items: center; justify-content: center; }
         .layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; background: #000; }
 
-        /* CURSOR */
+        /* CURSOR MÃOZINHA PARA PC */
         button, .smart-card, .cat-item, .item, .power-btn, .key { cursor: pointer; }
 
-        /* FOCO */
+        /* FOCO PADRÃO (VOLTOU AO ORIGINAL COM SOMBRA FORTE) */
         .focused {
             border: 3px solid #fff !important;
             background: var(--focus-grad) !important;
             color: #000 !important;
-            transform: scale(1.02);
+            transform: scale(1.05);
             z-index: 50;
-            box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+            box-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
         }
         
-        /* CORREÇÃO DO FOCO NA PREVIEW */
+        /* CORREÇÃO DO PLAYER */
         #vid-box.focused {
             transform: none !important;
             border: 4px solid var(--gold) !important;
@@ -61,20 +61,11 @@
             top: 0 !important; left: 0 !important;
             width: 100vw !important; height: 100vh !important;
             z-index: 9999 !important;
-            background: #000;
-        }
-
-        /* AJUSTE PARA O VÍDEO EM TELA CHEIA FICAR 100% */
-        #vid-box.fs video {
-            width: 100% !important;
-            height: 100% !important;
-            max-width: none !important;
-            max-height: none !important;
         }
 
         .focused i, .focused span, .focused div { color: #000 !important; }
 
-        /* LOGIN */
+        /* LOGIN RESPONSIVO */
         .login-box { 
             width: 400px; max-width: 90%; padding: 40px; 
             background: #111; border: 1px solid #333; 
@@ -92,6 +83,7 @@
             justify-content: space-between;
         }
 
+        /* Ajustes Mobile Dashboard */
         @media (max-width: 768px) {
             #dash-layer { padding: 20px; }
             .dash-grid { flex-direction: column; gap: 20px; overflow-y: auto; }
@@ -100,7 +92,7 @@
             .col-cat { width: 30%; } 
             .col-list { width: 70%; border: none; }
             .col-play { position: fixed; bottom: 0; left: 0; width: 100%; height: auto; z-index: 100; border-top: 2px solid #333; }
-            .vid-box { height: 200px !important; }
+            .vid-box { height: 200px; }
             .meta { display: none; }
             #content-layer { flex-wrap: wrap; }
         }
@@ -161,29 +153,10 @@
 
         .col-play { flex: 1; background: #000; display: flex; flex-direction: column; position: relative; }
         
-        /* --- CORREÇÃO DA JANELINHA (AGORA VAI!) --- */
-        .vid-box { 
-            width: 100%; 
-            height: 45vh; 
-            background: #000; 
-            position: relative; 
-            border-bottom: 2px solid #333;
-            overflow: hidden; 
-            /* Removemos o flex que estava centralizando "pequeno" */
-            display: block; 
-        }
+        /* Vid-box Base */
+        .vid-box { width: 100%; height: 45vh; background: #000; position: relative; border-bottom: 2px solid #333; }
         
-        video { 
-            /* Forçamos o vídeo a ocupar 100% da caixa */
-            width: 100%; 
-            height: 100%; 
-            /* "contain" garante que a imagem não estique, mas use o máximo de espaço */
-            object-fit: contain; 
-            
-            background: #000; 
-            outline: none;
-            border: none;
-        }
+        video { width: 100%; height: 100%; background: #000; object-fit: contain !important; }
         
         .meta { padding: 30px; flex: 1; background: #080808; display: flex; flex-direction: column; overflow: hidden; }
         .meta-title { font-size: 24px; color: var(--gold); font-weight: 800; margin-bottom: 10px; }
@@ -308,159 +281,89 @@
         };
 
         var PlayerEngine = {
-            hls: null, video: null, url: null, retryCount: 0, monitorTimer: null, lastTime: 0, stallCount: 0, 
-            isRecovering: false, isHlsContent: false,
-
+            hls: null, video: null, url: null, retryCount: 0, monitorTimer: null, lastTime: 0, stallCount: 0,
             init: function() { 
                 this.video = document.getElementById('player'); 
-                this.video.addEventListener('contextmenu', (e) => { e.preventDefault(); return false; });
-                this.video.onerror = function() { PlayerEngine.handleError(); };
+                this.video.onerror = function() { PlayerEngine.recover(); };
             },
-
             play: function(url, isLive) {
-                this.isRecovering = false;
                 if(this.url === url && !this.video.paused) return;
-                
-                this.stop(); 
-                this.url = url; 
-                this.retryCount = 0; 
-                this.stallCount = 0;
+                this.stop(); this.url = url; this.retryCount = 0; this.stallCount = 0;
                 this.video.controls = false; 
-
-                this.isHlsContent = url.includes('.m3u8') || isLive;
-
                 if(isLive) {
                     this.video.classList.add('live');
                     if(url.indexOf('.m3u8') === -1 && url.indexOf('.ts') > -1) url = url.replace('.ts', '.m3u8');
-                } else {
-                    this.video.classList.remove('live');
-                }
+                } else this.video.classList.remove('live');
 
-                this.startMonitor();
+                if(isLive || url.includes('.m3u8')) this.startMonitor();
 
-                if (this.isHlsContent && Hls.isSupported()) {
-                    console.log("Iniciando Modo HLS (Turbo)");
-                    this.startHls(url, isLive); 
-                } else {
-                    console.log("Iniciando Modo Nativo (MP4/MKV)");
-                    this.video.src = url;
-                    this.video.play().catch(function(e){
-                        console.log("Erro Play Nativo:", e);
+                // Tentativa Nativa Otimizada
+                var canPlayNative = this.video.canPlayType('application/vnd.apple.mpegurl');
+                if (canPlayNative === "probably" || canPlayNative === "maybe") {
+                    this.video.src = url; 
+                    this.video.play().catch(function(e){ 
+                        if(Hls.isSupported()) PlayerEngine.startHls(url); 
                     });
+                } else if (Hls.isSupported()) {
+                    this.startHls(url);
+                } else {
+                    this.video.src = url; 
+                    this.video.play().catch(e => console.log(e));
                 }
             },
-
-            startHls: function(url, isLive) {
+            startHls: function(url) {
                 if(this.hls) this.hls.destroy();
-
+                // --- MANTIVE A CONFIGURAÇÃO TURBO PARA FUTEBOL ---
                 var config = { 
-                    enableWorker: true,
-                    enableSoftwareAES: false,
-                    manifestLoadingTimeOut: 20000, 
+                    enableWorker: true, 
+                    maxBufferLength: 30, // Buffer alto para TV Philco
+                    maxMaxBufferLength: 60,
+                    startLevel: -1, 
+                    manifestLoadingTimeOut: 20000,
+                    capLevelToPlayerSize: true 
                 };
-
-                if(isLive) {
-                    config.liveSyncDurationCount = 2; 
-                    config.maxMaxBufferLength = 10;   
-                    config.startLevel = -1;
-                    config.liveMaxLatencyDurationCount = 10; 
-                } else {
-                    config.maxBufferLength = 30;
-                    config.maxMaxBufferLength = 60;
-                }
-
                 this.hls = new Hls(config);
                 this.hls.loadSource(url);
                 this.hls.attachMedia(this.video);
-
-                this.hls.on(Hls.Events.MANIFEST_PARSED, function() { 
-                    PlayerEngine.video.play().catch(function(e){
-                         PlayerEngine.video.muted = true; PlayerEngine.video.play();
-                    }); 
-                });
-
+                this.hls.on(Hls.Events.MANIFEST_PARSED, function() { PlayerEngine.video.play().catch(function(e){}); });
                 this.hls.on(Hls.Events.ERROR, function(event, data) {
-                    if (data.fatal) {
-                        if(data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                             console.log("Rede instável, recuperando...");
-                             PlayerEngine.hls.startLoad();
-                        } else {
-                             PlayerEngine.handleError();
-                        }
+                    if (data.fatal) { 
+                        if(data.type === Hls.ErrorTypes.NETWORK_ERROR) PlayerEngine.hls.startLoad(); else PlayerEngine.recover(); 
                     }
                 });
             },
-
             startMonitor: function() {
                 this.stopMonitor();
                 this.monitorTimer = setInterval(function() {
                     var v = PlayerEngine.video;
                     if(!v || !PlayerEngine.url || v.paused) return;
-
                     if(Math.abs(v.currentTime - PlayerEngine.lastTime) < 0.1) {
                         PlayerEngine.stallCount++;
-                        if(PlayerEngine.stallCount >= 3) { 
-                            if(App.mode === 'live' && PlayerEngine.isHlsContent) {
-                                if(PlayerEngine.hls && PlayerEngine.hls.liveSyncPosition) {
-                                    v.currentTime = PlayerEngine.hls.liveSyncPosition; 
-                                } else if(v.seekable.length > 0) {
-                                    v.currentTime = v.seekable.end(0) - 1; 
-                                }
-                                PlayerEngine.stallCount = 0; 
-                            } else {
-                                if(PlayerEngine.stallCount > 5) { 
-                                    v.currentTime += 5;
-                                    PlayerEngine.stallCount = 0;
-                                }
-                            }
+                        if(PlayerEngine.stallCount > 5) { 
+                            App.osd("RECONECTANDO..."); PlayerEngine.recover(); 
                         }
-                    } else { 
-                        PlayerEngine.stallCount = 0; 
-                        PlayerEngine.lastTime = v.currentTime; 
-                        
-                        if(PlayerEngine.isRecovering) {
-                            PlayerEngine.isRecovering = false;
-                            var osd = document.getElementById('osd'); if(osd) osd.style.display = 'none';
+                    } else { PlayerEngine.stallCount = 0; PlayerEngine.lastTime = v.currentTime; }
+                }, 2000);
+            },
+            stopMonitor: function() { if(this.monitorTimer) clearInterval(this.monitorTimer); },
+            recover: function() {
+                this.retryCount++;
+                if(this.retryCount > 8) { this.stop(); App.osd("FALHA DE SINAL"); return; }
+                setTimeout(function(){ 
+                    PlayerEngine.stop(); 
+                    setTimeout(function(){ 
+                        if(App.mode === 'live' || PlayerEngine.url.includes('.m3u8')) {
+                            var v = document.getElementById('player'); v.load(); PlayerEngine.play(PlayerEngine.url, true);
                         }
-                    }
+                    }, 500); 
                 }, 1000);
             },
-
-            stopMonitor: function() { if(this.monitorTimer) clearInterval(this.monitorTimer); },
-
-            handleError: function() {
-                if(this.isRecovering) return;
-                this.isRecovering = true;
-                this.retryCount++;
-                if(this.retryCount > 10) { 
-                    this.stop(); 
-                    App.osd("ERRO: ARQUIVO NÃO SUPORTADO"); 
-                    return; 
-                }
-                
-                if(App.mode === 'live' && this.hls) {
-                    this.hls.swapAudioCodec(); 
-                    this.hls.recoverMediaError();
-                } else {
-                    var t = this.video.currentTime;
-                    var src = this.video.src;
-                    this.video.src = "";
-                    this.video.src = src;
-                    this.video.load();
-                    this.video.play().then(() => {
-                         if(t > 0) this.video.currentTime = t;
-                    }).catch(e => {});
-                }
-
-                setTimeout(function(){ PlayerEngine.isRecovering = false; }, 3000);
-            },
-
             stop: function() { 
                 this.stopMonitor(); 
                 if(this.hls) { this.hls.destroy(); this.hls = null; } 
                 if(this.video) { 
                     this.video.pause(); 
-                    this.video.removeAttribute('src'); 
+                    this.video.removeAttribute('src'); // Limpeza de memoria importante
                     this.video.load(); 
                 } 
             }
@@ -477,17 +380,11 @@
                     document.getElementById('i2').value = localStorage.getItem('rc_p');
                 }
                 PlayerEngine.init();
-                
                 document.getElementById('player').onended = function() { 
-                    if(App.mode === 'live' || PlayerEngine.isRecovering) {
-                        PlayerEngine.video.play().catch(function(){});
-                    } else if(App.mode==='series' && App.isFolder && App.idx < App.seriesEps.length-1) {
+                    if(App.mode==='series' && App.isFolder && App.idx < App.seriesEps.length-1) {
                         App.idx++; App.updateFocus(); App.playStream(App.seriesEps[App.idx]);
-                    } else {
-                        App.exitFull(); 
-                    }
+                    } else App.exitFull(); 
                 };
-
                 setInterval(this.updateClock, 1000);
                 this.updateClock();
                 this.updateFocus();
@@ -679,6 +576,7 @@
                 }
             },
 
+            // --- RESTAURADO: PESQUISA MANUAL (SEM TIMER) ---
             doSearch: function() {
                 var t = document.getElementById('search').value.toLowerCase();
                 if(t.length < 2) return;
@@ -700,6 +598,7 @@
                     App.req(App.creds.h+"/player_api.php?username="+App.creds.u+"&password="+App.creds.p+"&action="+act, function(d){ App.globalData=d; cb(d); });
                 }
             },
+            
             toggleFull: function() {
                 var b = document.getElementById('vid-box'); if(b.classList.contains('fs')) this.exitFull(); else { b.classList.add('fs'); App.osd("TELA CHEIA"); }
             },
@@ -809,7 +708,7 @@
         document.addEventListener('keydown', function(e) {
             var k=e.keyCode;
             
-            // --- CORREÇÃO DE INPUT (DESTRAVA DE NAVEGAÇÃO) ---
+            // --- INPUT RESTAURADO (MANUAL) ---
             if(document.activeElement.tagName === 'INPUT') {
                 if(App.scr === 0) {
                     if(k === 13) { e.preventDefault(); App.login(); return; } 
@@ -817,16 +716,14 @@
                     if(k === 38) { e.preventDefault(); App.move(0); return; } 
                     return; 
                 }
+                // Na busca: Enter para buscar, Seta Baixo para sair
                 if(App.scr === 2) {
-                    // SE APERTAR BAIXO, VAI PARA A LISTA
-                    if(k === 40) { e.preventDefault(); App.zone=2; App.idx=0; App.updateFocus(); return; } 
-                    // SE APERTAR ESQUERDA OU VOLTAR, SAI DA BUSCA
-                    if(k === 37 || k === 8 || k === 461) { e.preventDefault(); App.zone=0; App.idx=App.lastCatIdx; App.updateFocus(); return; }
-                    
                     if(k === 13) { App.doSearch(); return; } 
+                    if(k === 40) { e.preventDefault(); App.zone=2; App.idx=0; App.updateFocus(); return; } 
                     return; 
                 }
             }
+            // ------------------------------------
 
             if(App.scr === 0) {
                 if(k===13) {
