@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>R&C GOLD - PHILCO NETRANGE</title>
+    <title>R&C GOLD</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
@@ -178,26 +178,6 @@
             z-index: 10000; pointer-events: none;
         }
         
-        /* Status de conexão */
-        .connection-status {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            background: rgba(0, 0, 0, 0.8);
-            color: #fff;
-            padding: 8px 15px;
-            border-radius: 5px;
-            font-size: 12px;
-            font-weight: 600;
-            display: none;
-            z-index: 10001;
-            border-left: 4px solid #FFD700;
-        }
-        
-        .connection-status.good { border-left-color: #00C851; }
-        .connection-status.warning { border-left-color: #FFBB33; }
-        .connection-status.bad { border-left-color: #FF4444; }
-        
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
     </style>
@@ -268,17 +248,14 @@
             <div id="item-list" class="item-list"></div>
         </div>
         <div class="col-play">
-            <div id="connection-indicator" class="connection-status hide">
-                <i class="fas fa-wifi"></i> <span id="connection-text">CONEXÃO ESTÁVEL</span>
-            </div>
             <div id="vid-box" class="vid-box focusable">
                 <video id="player" playsinline webkit-playsinline></video>
                 <div id="osd" class="osd-status"></div>
             </div>
             <div class="meta">
-                <div id="meta-title" class="meta-title">R&C GOLD - PHILCO NETRANGE</div>
+                <div id="meta-title" class="meta-title">R&C GOLD</div>
                 <div id="meta-epg" class="meta-epg hide"></div>
-                <div id="meta-desc" class="meta-desc">Sistema anti-travamentos ativo. Assista seu futebol sem estresse.</div>
+                <div id="meta-desc" class="meta-desc">Selecione um conteúdo.</div>
                 
                 <div class="keys">
                     <div class="key"><div class="dot" style="background:#ff4444"></div> TELA CHEIA</div>
@@ -304,418 +281,91 @@
         };
 
         var PlayerEngine = {
-            hls: null, video: null, url: null, retryCount: 0, monitorTimer: null, lastTime: 0, 
-            stallCount: 0, bufferTimer: null, qualityTimer: null, connectionMonitor: null,
-            lastBufferState: null, retryDelay: 1000, maxRetryDelay: 10000,
+            hls: null, video: null, url: null, retryCount: 0, monitorTimer: null, lastTime: 0, stallCount: 0,
             init: function() { 
                 this.video = document.getElementById('player'); 
                 this.video.onerror = function() { PlayerEngine.recover(); };
-                this.video.onwaiting = function() { PlayerEngine.onBuffering(); };
-                this.video.onplaying = function() { PlayerEngine.onPlaying(); };
-                this.video.onstalled = function() { PlayerEngine.onStalled(); };
-                this.startConnectionMonitor();
             },
-            
-            startConnectionMonitor: function() {
-                var connectionIndicator = document.getElementById('connection-indicator');
-                var connectionText = document.getElementById('connection-text');
-                
-                this.connectionMonitor = setInterval(function() {
-                    if(!PlayerEngine.video || !PlayerEngine.url || PlayerEngine.video.paused) {
-                        connectionIndicator.classList.add('hide');
-                        return;
-                    }
-                    
-                    var video = PlayerEngine.video;
-                    var buffered = video.buffered;
-                    var currentTime = video.currentTime;
-                    var bufferTime = 0;
-                    
-                    if(buffered.length > 0) {
-                        for(var i = 0; i < buffered.length; i++) {
-                            if(buffered.start(i) <= currentTime && buffered.end(i) >= currentTime) {
-                                bufferTime = buffered.end(i) - currentTime;
-                                break;
-                            }
-                        }
-                    }
-                    
-                    var networkState = video.networkState;
-                    var readyState = video.readyState;
-                    
-                    // Classificação da conexão
-                    if(bufferTime > 10) {
-                        connectionIndicator.classList.remove('hide');
-                        connectionIndicator.className = 'connection-status good';
-                        connectionText.innerHTML = '<i class="fas fa-wifi"></i> CONEXÃO EXCELENTE';
-                    } else if(bufferTime > 5) {
-                        connectionIndicator.classList.remove('hide');
-                        connectionIndicator.className = 'connection-status warning';
-                        connectionText.innerHTML = '<i class="fas fa-wifi"></i> CONEXÃO BOA';
-                    } else if(bufferTime > 2) {
-                        connectionIndicator.classList.remove('hide');
-                        connectionIndicator.className = 'connection-status warning';
-                        connectionText.innerHTML = '<i class="fas fa-wifi"></i> CONEXÃO REGULAR';
-                    } else if(bufferTime > 0) {
-                        connectionIndicator.classList.remove('hide');
-                        connectionIndicator.className = 'connection-status bad';
-                        connectionText.innerHTML = '<i class="fas fa-exclamation-triangle"></i> CONEXÃO FRACA';
-                    } else {
-                        connectionIndicator.classList.remove('hide');
-                        connectionIndicator.className = 'connection-status bad';
-                        connectionText.innerHTML = '<i class="fas fa-exclamation-circle"></i> SEM BUFFER';
-                    }
-                    
-                    // Atualizar texto com informações detalhadas
-                    connectionText.innerHTML += ' | Buffer: ' + bufferTime.toFixed(1) + 's';
-                    
-                }, 2000);
-            },
-            
-            onBuffering: function() {
-                App.osd("BUFFERANDO...");
-                this.stallCount++;
-                if(this.stallCount > 3) {
-                    this.recover();
-                }
-            },
-            
-            onPlaying: function() {
-                this.stallCount = 0;
-                this.retryDelay = 1000; // Resetar delay de retry
-            },
-            
-            onStalled: function() {
-                App.osd("SINAL TRAVADO");
-                this.stallCount += 2;
-                if(this.stallCount > 2) {
-                    this.recover();
-                }
-            },
-            
             play: function(url, isLive) {
                 if(this.url === url && !this.video.paused) return;
-                
-                this.stop(); 
-                this.url = url; 
-                this.retryCount = 0; 
-                this.stallCount = 0;
-                this.retryDelay = 1000;
-                
+                this.stop(); this.url = url; this.retryCount = 0; this.stallCount = 0;
                 this.video.controls = false; 
-                
                 if(isLive) {
                     this.video.classList.add('live');
-                    // Forçar .m3u8 para HLS
-                    if(url.indexOf('.m3u8') === -1 && (url.indexOf('.ts') > -1 || url.indexOf('live') > -1)) {
-                        url = url.replace('.ts', '.m3u8').replace(/\.(mp4|avi|mkv)$/, '.m3u8');
-                    }
-                } else {
-                    this.video.classList.remove('live');
-                }
+                    if(url.indexOf('.m3u8') === -1 && url.indexOf('.ts') > -1) url = url.replace('.ts', '.m3u8');
+                } else this.video.classList.remove('live');
 
-                // CONFIGURAÇÃO ESPECIAL PARA PHILCO NETRANGE - OTIMIZADO PARA FUTEBOL
+                if(isLive || url.includes('.m3u8')) this.startMonitor();
+
+                // Tentativa Nativa Otimizada
                 var canPlayNative = this.video.canPlayType('application/vnd.apple.mpegurl');
                 if (canPlayNative === "probably" || canPlayNative === "maybe") {
-                    // Configurações para player nativo
-                    this.video.preload = "auto";
-                    this.video.playsInline = true;
-                    this.video.muted = false;
                     this.video.src = url; 
-                    
-                    var playPromise = this.video.play();
-                    if (playPromise !== undefined) {
-                        playPromise.catch(function(e){ 
-                            if(Hls.isSupported()) PlayerEngine.startHls(url); 
-                            else PlayerEngine.video.muted = true;
-                            PlayerEngine.video.play().catch(e => console.log("Fallback play error:", e));
-                        });
-                    }
+                    this.video.play().catch(function(e){ 
+                        if(Hls.isSupported()) PlayerEngine.startHls(url); 
+                    });
                 } else if (Hls.isSupported()) {
                     this.startHls(url);
                 } else {
                     this.video.src = url; 
-                    this.video.play().catch(e => {
-                        console.log("Direct play error:", e);
-                        this.video.muted = true;
-                        this.video.play().catch(e2 => console.log("Muted play error:", e2));
-                    });
+                    this.video.play().catch(e => console.log(e));
                 }
-                
-                // Iniciar monitoramento avançado
-                this.startAdvancedMonitor();
             },
-            
             startHls: function(url) {
                 if(this.hls) this.hls.destroy();
-                
-                // CONFIGURAÇÃO TURBO ESPECIAL PARA FUTEBOL NA PHILCO NETRANGE
+                // --- MANTIVE A CONFIGURAÇÃO TURBO PARA FUTEBOL ---
                 var config = { 
-                    enableWorker: true,
-                    lowLatencyMode: true,
-                    backBufferLength: 90,
-                    maxBufferLength: 60,
-                    maxMaxBufferLength: 120,
-                    maxBufferSize: 60 * 1000 * 1000, // 60MB
-                    maxBufferHole: 0.5,
-                    maxFragLookUpTolerance: 0.2,
-                    manifestLoadingTimeOut: 15000,
-                    manifestLoadingMaxRetry: 4,
-                    manifestLoadingRetryDelay: 1000,
-                    manifestLoadingMaxRetryTimeout: 15000,
-                    levelLoadingTimeOut: 20000,
-                    levelLoadingMaxRetry: 6,
-                    levelLoadingRetryDelay: 1000,
-                    levelLoadingMaxRetryTimeout: 60000,
-                    fragLoadingTimeOut: 20000,
-                    fragLoadingMaxRetry: 6,
-                    fragLoadingRetryDelay: 1000,
-                    fragLoadingMaxRetryTimeout: 60000,
-                    startLevel: -1,
-                    capLevelToPlayerSize: true,
-                    capLevelOnFPSDrop: true,
-                    fpsDroppedMonitoringPeriod: 5000,
-                    fpsDroppedMonitoringThreshold: 0.2,
-                    autoStartLoad: true,
-                    startPosition: -1,
-                    defaultAudioCodec: undefined,
-                    initialLiveManifestSize: 1,
-                    maxLiveSyncPlaybackRate: 1.5,
-                    enableSoftwareAES: true,
-                    stretchShortVideoTrack: true,
-                    forceKeyFrameOnDiscontinuity: true,
-                    abrEwmaDefaultEstimate: 500000,
-                    abrEwmaFastLive: 3,
-                    abrEwmaSlowLive: 9,
-                    abrEwmaFastVoD: 3,
-                    abrEwmaSlowVoD: 9,
-                    abrEwmaDefaultEstimateMax: 500000,
-                    abrBandWidthFactor: 0.95,
-                    abrBandWidthUpFactor: 0.7,
-                    abrMaxWithRealBitrate: true,
-                    maxStarvationDelay: 4,
-                    maxLoadingDelay: 4,
-                    minAutoBitrate: 0
+                    enableWorker: true, 
+                    maxBufferLength: 30, // Buffer alto para TV Philco
+                    maxMaxBufferLength: 60,
+                    startLevel: -1, 
+                    manifestLoadingTimeOut: 20000,
+                    capLevelToPlayerSize: true 
                 };
-                
                 this.hls = new Hls(config);
                 this.hls.loadSource(url);
                 this.hls.attachMedia(this.video);
-                
-                this.hls.on(Hls.Events.MANIFEST_PARSED, function() { 
-                    PlayerEngine.video.play().catch(function(e){
-                        PlayerEngine.video.muted = true;
-                        PlayerEngine.video.play().catch(e2 => console.log(e2));
-                    }); 
-                });
-                
+                this.hls.on(Hls.Events.MANIFEST_PARSED, function() { PlayerEngine.video.play().catch(function(e){}); });
                 this.hls.on(Hls.Events.ERROR, function(event, data) {
-                    console.log("HLS Error:", data.type, data.details);
-                    
-                    if (data.fatal) {
-                        switch(data.type) {
-                            case Hls.ErrorTypes.NETWORK_ERROR:
-                                PlayerEngine.onNetworkError(data);
-                                break;
-                            case Hls.ErrorTypes.MEDIA_ERROR:
-                                PlayerEngine.onMediaError(data);
-                                break;
-                            default:
-                                PlayerEngine.recover();
-                                break;
-                        }
-                    } else {
-                        // Erros não fatais - apenas log
-                        if(data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
-                            PlayerEngine.onBuffering();
-                        }
+                    if (data.fatal) { 
+                        if(data.type === Hls.ErrorTypes.NETWORK_ERROR) PlayerEngine.hls.startLoad(); else PlayerEngine.recover(); 
                     }
                 });
-                
-                this.hls.on(Hls.Events.FRAG_BUFFERED, function(event, data) {
-                    PlayerEngine.stallCount = 0; // Resetar contador quando bufferiza
-                });
-                
-                this.hls.on(Hls.Events.LEVEL_LOADED, function(event, data) {
-                    App.osd("QUALIDADE: " + (data.details.totalbitrate / 1000).toFixed(0) + "kbps");
-                });
             },
-            
-            onNetworkError: function(data) {
-                if(data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || 
-                   data.details === Hls.ErrorDetails.LEVEL_LOAD_ERROR ||
-                   data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR) {
-                    this.recover();
-                } else {
-                    this.hls.startLoad();
-                }
-            },
-            
-            onMediaError: function(data) {
-                if(data.details === Hls.ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR) {
-                    App.osd("CODEC INCOMPATÍVEL - TENTANDO NATIVO");
-                    this.hls.destroy();
-                    this.hls = null;
-                    this.video.src = this.url;
-                    this.video.play().catch(e => console.log(e));
-                } else {
-                    this.hls.recoverMediaError();
-                }
-            },
-            
-            startAdvancedMonitor: function() {
+            startMonitor: function() {
                 this.stopMonitor();
-                
-                // Monitor de buffer
-                this.bufferTimer = setInterval(function() {
+                this.monitorTimer = setInterval(function() {
                     var v = PlayerEngine.video;
                     if(!v || !PlayerEngine.url || v.paused) return;
-                    
-                    var buffered = v.buffered;
-                    var currentTime = v.currentTime;
-                    var hasBuffer = false;
-                    
-                    if(buffered.length > 0) {
-                        for(var i = 0; i < buffered.length; i++) {
-                            if(buffered.start(i) <= currentTime && buffered.end(i) >= currentTime) {
-                                hasBuffer = true;
-                                var bufferEnd = buffered.end(i);
-                                var bufferAhead = bufferEnd - currentTime;
-                                
-                                // Se buffer muito baixo, tentar antecipar
-                                if(bufferAhead < 2 && !v.seeking) {
-                                    PlayerEngine.stallCount++;
-                                    if(PlayerEngine.stallCount > 2) {
-                                        App.osd("BUFFER BAIXO - OTIMIZANDO...");
-                                        // Tentar pular para área com mais buffer
-                                        v.currentTime = Math.min(v.currentTime + 0.5, v.duration);
-                                    }
-                                } else {
-                                    PlayerEngine.stallCount = Math.max(0, PlayerEngine.stallCount - 0.5);
-                                }
-                                break;
-                            }
-                        }
-                    }
-                    
-                    // Se não tem buffer e não está pausado, problema!
-                    if(!hasBuffer && !v.paused && v.readyState >= 2) {
+                    if(Math.abs(v.currentTime - PlayerEngine.lastTime) < 0.1) {
                         PlayerEngine.stallCount++;
-                        if(PlayerEngine.stallCount > 3) {
-                            PlayerEngine.recover();
+                        if(PlayerEngine.stallCount > 5) { 
+                            App.osd("RECONECTANDO..."); PlayerEngine.recover(); 
                         }
-                    }
-                    
-                    // Monitor de FPS para detectar travamentos
-                    if(Math.abs(v.currentTime - PlayerEngine.lastTime) < 0.01 && !v.paused) {
-                        PlayerEngine.stallCount += 0.5;
-                    } else {
-                        PlayerEngine.lastTime = v.currentTime;
-                        PlayerEngine.stallCount = Math.max(0, PlayerEngine.stallCount - 0.2);
-                    }
-                    
-                }, 1000);
-                
-                // Monitor de qualidade (mais lento)
-                this.qualityTimer = setInterval(function() {
-                    if(!PlayerEngine.video || PlayerEngine.video.paused) return;
-                    
-                    var v = PlayerEngine.video;
-                    var isSmooth = true;
-                    
-                    // Verificar se o vídeo está "travando" (FPS muito baixo)
-                    if(v.readyState >= 3) {
-                        var timeDiff = v.currentTime - PlayerEngine.lastTime;
-                        if(timeDiff < 0.1 && !v.paused) {
-                            isSmooth = false;
-                        }
-                    }
-                    
-                    if(!isSmooth && PlayerEngine.hls) {
-                        var currentLevel = PlayerEngine.hls.currentLevel;
-                        var levels = PlayerEngine.hls.levels;
-                        
-                        // Se qualidade muito alta, reduzir
-                        if(currentLevel > 0 && levels && levels.length > 1) {
-                            var newLevel = Math.max(0, currentLevel - 1);
-                            PlayerEngine.hls.currentLevel = newLevel;
-                            App.osd("QUALIDADE REDUZIDA PARA FLUIDEZ");
-                        }
-                    }
-                    
-                }, 5000);
+                    } else { PlayerEngine.stallCount = 0; PlayerEngine.lastTime = v.currentTime; }
+                }, 2000);
             },
-            
-            stopMonitor: function() { 
-                if(this.bufferTimer) clearInterval(this.bufferTimer); 
-                if(this.qualityTimer) clearInterval(this.qualityTimer); 
-                this.bufferTimer = null;
-                this.qualityTimer = null;
-            },
-            
+            stopMonitor: function() { if(this.monitorTimer) clearInterval(this.monitorTimer); },
             recover: function() {
                 this.retryCount++;
-                
-                if(this.retryCount > 10) { 
-                    this.stop(); 
-                    App.osd("FALHA DE SINAL - TENTE NOVAMENTE"); 
-                    return; 
-                }
-                
-                App.osd("RECUPERANDO... TENTATIVA " + this.retryCount);
-                
-                // Backoff exponencial
-                var delay = Math.min(this.retryDelay * Math.pow(1.5, this.retryCount - 1), this.maxRetryDelay);
-                this.retryDelay = delay;
-                
+                if(this.retryCount > 8) { this.stop(); App.osd("FALHA DE SINAL"); return; }
                 setTimeout(function(){ 
                     PlayerEngine.stop(); 
-                    
                     setTimeout(function(){ 
                         if(App.mode === 'live' || PlayerEngine.url.includes('.m3u8')) {
-                            // Tentar reconectar com URL limpa
-                            var originalUrl = PlayerEngine.url;
-                            var cleanUrl = originalUrl.split('?')[0]; // Remover parâmetros
-                            
-                            // Se for HLS, forçar reload
-                            if(PlayerEngine.hls) {
-                                PlayerEngine.hls.destroy();
-                                PlayerEngine.hls = null;
-                            }
-                            
-                            var v = document.getElementById('player'); 
-                            v.load(); 
-                            
-                            // Pequena variação na URL para evitar cache
-                            var timestamp = new Date().getTime();
-                            var recoverUrl = cleanUrl + (cleanUrl.includes('?') ? '&' : '?') + '_t=' + timestamp;
-                            
-                            PlayerEngine.play(recoverUrl, true);
+                            var v = document.getElementById('player'); v.load(); PlayerEngine.play(PlayerEngine.url, true);
                         }
                     }, 500); 
-                    
-                }, delay);
+                }, 1000);
             },
-            
             stop: function() { 
                 this.stopMonitor(); 
-                if(this.hls) { 
-                    try { this.hls.destroy(); } catch(e) {} 
-                    this.hls = null; 
-                } 
+                if(this.hls) { this.hls.destroy(); this.hls = null; } 
                 if(this.video) { 
                     this.video.pause(); 
-                    this.video.removeAttribute('src'); // Limpeza de memória
+                    this.video.removeAttribute('src'); // Limpeza de memoria importante
                     this.video.load(); 
                 } 
-            },
-            
-            destroy: function() {
-                this.stop();
-                if(this.connectionMonitor) {
-                    clearInterval(this.connectionMonitor);
-                    this.connectionMonitor = null;
-                }
             }
         };
 
@@ -786,7 +436,7 @@
                     } else document.getElementById('msg-login').innerText="Usuário/Senha Inválidos";
                 });
             },
-            logout: function() { localStorage.clear(); PlayerEngine.destroy(); location.reload(); },
+            logout: function() { localStorage.clear(); location.reload(); },
 
             setScr: function(n) {
                 if(n===1) { PlayerEngine.stop(); }
@@ -818,8 +468,8 @@
             },
             
             resetInfo: function() {
-                document.getElementById('meta-title').innerText = "R&C GOLD - PHILCO NETRANGE";
-                document.getElementById('meta-desc').innerText = "Sistema anti-travamentos ativo. Assista seu futebol sem estresse.";
+                document.getElementById('meta-title').innerText = "R&C GOLD";
+                document.getElementById('meta-desc').innerText = "Selecione um conteúdo.";
                 document.getElementById('meta-epg').innerText = "";
                 document.getElementById('meta-epg').classList.add('hide');
                 var v = document.getElementById('player'); v.removeAttribute('src'); v.load();
@@ -904,9 +554,6 @@
                 document.getElementById('meta-title').innerText = item.name || item.title;
                 document.getElementById('meta-desc').innerText = "Carregando...";
                 document.getElementById('meta-epg').classList.add('hide');
-                
-                // Adicionar timestamp para evitar cache
-                url += "?_t=" + new Date().getTime();
                 
                 if(this.mode === 'live') {
                     this.req(this.creds.h+"/player_api.php?username="+this.creds.u+"&password="+this.creds.p+"&action=get_short_epg&stream_id="+id, function(d){
@@ -1117,30 +764,6 @@
             if(k===405||k===89) if(App.scr===2) { App.zone=1; App.updateFocus(); } 
             if(k===406||k===66||k===275) { e.preventDefault(); App.setScr(1); } 
         });
-        
-        // Gerenciamento de memória para TV Philco
-        window.addEventListener('beforeunload', function() {
-            PlayerEngine.destroy();
-        });
-        
-        // Detectar idle para otimizar performance
-        var idleTimer;
-        function resetIdleTimer() {
-            clearTimeout(idleTimer);
-            idleTimer = setTimeout(function() {
-                if(App.scr === 2 && App.zone === 3 && !document.getElementById('vid-box').classList.contains('fs')) {
-                    // Reduzir qualidade quando inativo
-                    if(PlayerEngine.hls && PlayerEngine.hls.levels && PlayerEngine.hls.levels.length > 1) {
-                        PlayerEngine.hls.currentLevel = 0;
-                    }
-                }
-            }, 30000); // 30 segundos
-        }
-        
-        document.addEventListener('mousemove', resetIdleTimer);
-        document.addEventListener('keydown', resetIdleTimer);
-        document.addEventListener('click', resetIdleTimer);
-        resetIdleTimer();
     </script>
 </body>
 </html>
