@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>R&C GOLD</title>
+    <title>R&C GOLD - Anti-Travamento</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
@@ -178,6 +178,49 @@
             z-index: 10000; pointer-events: none;
         }
         
+        /* Sistema de Status Anti-Travamento - APENAS PARA TV AO VIVO */
+        .anti-stuck-status {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 12px;
+            display: none;
+            border-left: 4px solid var(--gold);
+            z-index: 10001;
+            max-width: 300px;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-good { background-color: #00C851; }
+        .status-warning { background-color: #FFBB33; }
+        .status-bad { background-color: #FF4444; }
+        
+        .signal-bar {
+            height: 4px;
+            background: #333;
+            margin-top: 8px;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        
+        .signal-fill {
+            height: 100%;
+            background: var(--gold);
+            width: 100%;
+            transition: width 0.3s;
+        }
+        
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
     </style>
@@ -251,6 +294,11 @@
             <div id="vid-box" class="vid-box focusable">
                 <video id="player" playsinline webkit-playsinline></video>
                 <div id="osd" class="osd-status"></div>
+                <div id="anti-stuck-status" class="anti-stuck-status hide">
+                    <div><span class="status-indicator status-good"></span> <span id="status-text">CONEXÃO ESTÁVEL</span></div>
+                    <div class="signal-bar"><div id="signal-fill" class="signal-fill"></div></div>
+                    <div style="font-size:11px; margin-top:5px; opacity:0.8;">LATÊNCIA: <span id="latency">0</span>ms | BUFFER: <span id="buffer">0</span>%</div>
+                </div>
             </div>
             <div class="meta">
                 <div id="meta-title" class="meta-title">R&C GOLD</div>
@@ -262,12 +310,290 @@
                     <div class="key"><div class="dot" style="background:#00C851"></div> TOPO</div>
                     <div class="key"><div class="dot" style="background:#ffbb33"></div> BUSCAR</div>
                     <div class="key"><div class="dot" style="background:#33b5e5"></div> MENU</div>
+                    <div class="key"><div class="dot" style="background:#aa66cc"></div> OTIMIZAR</div>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
+        /* ============================
+           SISTEMA ANTI-TRAVAMENTO APENAS PARA TV AO VIVO
+           NÍVEL SKY/CLARO TV PARA FUTEBOL
+        ============================ */
+        
+        var AntiStuckSystem = {
+            enabled: false, // Começa desabilitado, só ativa em TV AO VIVO
+            pingInterval: null,
+            bufferCheckInterval: null,
+            healthScore: 100,
+            lastStuckTime: 0,
+            stuckCount: 0,
+            maxStuckCount: 3,
+            alternativeServers: [],
+            
+            init: function() {
+                console.log('🔧 Sistema Anti-Travamento Inicializado');
+            },
+            
+            enableForLiveTV: function() {
+                console.log('📺 Sistema Anti-Travamento ATIVADO para TV AO VIVO');
+                this.enabled = true;
+                this.startMonitoring();
+            },
+            
+            disableForVOD: function() {
+                console.log('🎬 Sistema Anti-Travamento DESATIVADO para Filmes/Séries');
+                this.enabled = false;
+                this.stopMonitoring();
+                this.hideStatusDisplay();
+            },
+            
+            startMonitoring: function() {
+                if (!this.enabled) return;
+                
+                // Limpa monitors anteriores
+                this.stopMonitoring();
+                
+                // Monitor de latência (ping ao servidor)
+                this.pingInterval = setInterval(() => {
+                    this.checkLatency();
+                }, 5000);
+                
+                // Monitor de buffer
+                this.bufferCheckInterval = setInterval(() => {
+                    this.checkBufferHealth();
+                }, 2000);
+                
+                this.updateStatusDisplay();
+            },
+            
+            stopMonitoring: function() {
+                if (this.pingInterval) clearInterval(this.pingInterval);
+                if (this.bufferCheckInterval) clearInterval(this.bufferCheckInterval);
+                this.pingInterval = null;
+                this.bufferCheckInterval = null;
+            },
+            
+            checkLatency: function() {
+                if (!PlayerEngine.video || !PlayerEngine.url) return;
+                
+                var startTime = performance.now();
+                var testUrl = PlayerEngine.url.replace(/\.(ts|m3u8)$/, '') + '.m3u8';
+                var xhr = new XMLHttpRequest();
+                xhr.open('HEAD', testUrl + '?t=' + Date.now());
+                xhr.timeout = 3000;
+                
+                xhr.onload = () => {
+                    var latency = Math.round(performance.now() - startTime);
+                    this.updateLatency(latency);
+                };
+                
+                xhr.onerror = xhr.ontimeout = () => {
+                    this.updateLatency(9999);
+                };
+                
+                try { xhr.send(); } catch(e) {}
+            },
+            
+            checkBufferHealth: function() {
+                if (!PlayerEngine.video || PlayerEngine.video.paused || !this.enabled) return;
+                
+                var video = PlayerEngine.video;
+                var bufferLength = 0;
+                
+                if (video.buffered && video.buffered.length > 0) {
+                    bufferLength = video.buffered.end(video.buffered.length - 1) - video.currentTime;
+                }
+                
+                var bufferPercent = Math.min(100, Math.round(bufferLength * 10));
+                
+                // Verifica travamento
+                if (bufferLength < 2 && !video.paused && PlayerEngine.url) {
+                    var now = Date.now();
+                    if (now - this.lastStuckTime > 5000) {
+                        this.stuckCount++;
+                        this.lastStuckTime = now;
+                        this.healthScore -= 20;
+                        
+                        if (this.stuckCount >= this.maxStuckCount) {
+                            this.triggerAutoRecovery();
+                        } else {
+                            this.triggerSoftRecovery();
+                        }
+                    }
+                } else if (bufferLength > 5) {
+                    this.healthScore = Math.min(100, this.healthScore + 5);
+                    this.stuckCount = Math.max(0, this.stuckCount - 1);
+                }
+                
+                this.updateBufferDisplay(bufferPercent);
+                this.updateStatusDisplay();
+            },
+            
+            updateLatency: function(latency) {
+                if (!this.enabled) return;
+                
+                document.getElementById('latency').textContent = latency;
+                
+                if (latency < 100) {
+                    this.healthScore = Math.min(100, this.healthScore + 10);
+                } else if (latency < 300) {
+                    this.healthScore = Math.max(0, this.healthScore - 5);
+                } else {
+                    this.healthScore = Math.max(0, this.healthScore - 15);
+                }
+            },
+            
+            updateBufferDisplay: function(percent) {
+                if (!this.enabled) return;
+                
+                document.getElementById('buffer').textContent = percent;
+                document.getElementById('signal-fill').style.width = percent + '%';
+                
+                var fill = document.getElementById('signal-fill');
+                if (percent > 70) {
+                    fill.style.background = '#00C851';
+                } else if (percent > 30) {
+                    fill.style.background = '#FFBB33';
+                } else {
+                    fill.style.background = '#FF4444';
+                }
+            },
+            
+            updateStatusDisplay: function() {
+                if (!this.enabled) return;
+                
+                var statusEl = document.getElementById('anti-stuck-status');
+                var statusText = document.getElementById('status-text');
+                var indicator = document.querySelector('#anti-stuck-status .status-indicator');
+                
+                if (this.healthScore > 70) {
+                    statusText.textContent = 'CONEXÃO ESTÁVEL';
+                    indicator.className = 'status-indicator status-good';
+                    statusEl.classList.remove('hide');
+                } else if (this.healthScore > 40) {
+                    statusText.textContent = 'CONEXÃO INSTÁVEL';
+                    indicator.className = 'status-indicator status-warning';
+                    statusEl.classList.remove('hide');
+                } else {
+                    statusText.textContent = 'CONEXÃO CRÍTICA';
+                    indicator.className = 'status-indicator status-bad';
+                    statusEl.classList.remove('hide');
+                }
+            },
+            
+            hideStatusDisplay: function() {
+                document.getElementById('anti-stuck-status').classList.add('hide');
+            },
+            
+            triggerSoftRecovery: function() {
+                if (!this.enabled) return;
+                
+                console.log('🔄 Soft Recovery Ativado (TV AO VIVO)');
+                App.osd("OTIMIZANDO CONEXÃO...");
+                
+                // Tenta forçar reload do segmento atual
+                if (PlayerEngine.hls) {
+                    try {
+                        PlayerEngine.hls.startLoad();
+                    } catch(e) {}
+                }
+            },
+            
+            triggerAutoRecovery: function() {
+                if (!this.enabled) return;
+                
+                console.log('🚨 Auto Recovery Ativado (TV AO VIVO)');
+                App.osd("RECUPERANDO SINAL...");
+                
+                this.stuckCount = 0;
+                
+                // Método 1: Restart completo
+                setTimeout(() => {
+                    if (PlayerEngine.hls) {
+                        PlayerEngine.hls.destroy();
+                        PlayerEngine.hls = null;
+                    }
+                    
+                    setTimeout(() => {
+                        PlayerEngine.play(PlayerEngine.url, true);
+                    }, 500);
+                }, 1000);
+            },
+            
+            tryAlternativeServer: function() {
+                if (!this.enabled) return;
+                
+                console.log('🔀 Tentando servidor alternativo (TV AO VIVO)');
+                
+                if (!PlayerEngine.url) return;
+                
+                // Gera URLs alternativas
+                var originalUrl = PlayerEngine.url;
+                var alternatives = [
+                    originalUrl.replace(/\.ts$/, '.m3u8'),
+                    originalUrl + '?buffer=2000&t=' + Date.now()
+                ];
+                
+                // Tenta cada alternativa
+                var tryNext = (index) => {
+                    if (index >= alternatives.length) return;
+                    
+                    App.osd("TENTANDO SERVIDOR " + (index + 1));
+                    
+                    var testVideo = document.createElement('video');
+                    testVideo.preload = 'metadata';
+                    testVideo.src = alternatives[index] + '#t=5';
+                    
+                    testVideo.onloadeddata = () => {
+                        console.log('✅ Servidor alternativo funcionando');
+                        PlayerEngine.play(alternatives[index], true);
+                    };
+                    
+                    testVideo.onerror = () => {
+                        setTimeout(() => tryNext(index + 1), 1000);
+                    };
+                };
+                
+                tryNext(0);
+            },
+            
+            optimizeForFootball: function() {
+                if (!this.enabled) return;
+                
+                console.log('⚽ Otimizando para Futebol Ao Vivo');
+                App.osd("OTIMIZANDO PARA FUTEBOL...");
+                
+                // Configurações específicas para futebol
+                if (PlayerEngine.hls) {
+                    var config = PlayerEngine.hls.config;
+                    config.maxBufferLength = 20;
+                    config.maxMaxBufferLength = 40;
+                    config.maxBufferSize = 50 * 1000 * 1000; // 50MB
+                    
+                    // Força qualidade estável
+                    PlayerEngine.hls.startLevel = -1;
+                }
+                
+                this.healthScore = 100;
+                this.stuckCount = 0;
+            },
+            
+            manualOptimize: function() {
+                if (!this.enabled) {
+                    App.osd("SÓ DISPONÍVEL PARA TV AO VIVO");
+                    return;
+                }
+                
+                this.optimizeForFootball();
+                this.triggerSoftRecovery();
+                setTimeout(() => {
+                    App.osd("OTIMIZAÇÃO COMPLETA");
+                }, 1500);
+            }
+        };
+        
         var FavManager = {
             key: 'rc_favs_smart', list: [],
             init: function() { var s = localStorage.getItem(this.key); this.list = s ? JSON.parse(s) : []; },
@@ -285,85 +611,167 @@
             init: function() { 
                 this.video = document.getElementById('player'); 
                 this.video.onerror = function() { PlayerEngine.recover(); };
+                
+                AntiStuckSystem.init();
             },
             play: function(url, isLive) {
                 if(this.url === url && !this.video.paused) return;
-                this.stop(); this.url = url; this.retryCount = 0; this.stallCount = 0;
+                this.stop(); 
+                this.url = url; 
+                this.retryCount = 0; 
+                this.stallCount = 0;
                 this.video.controls = false; 
+                
+                // ATIVA anti-travamento apenas para TV AO VIVO
+                if (isLive) {
+                    AntiStuckSystem.enableForLiveTV();
+                } else {
+                    AntiStuckSystem.disableForVOD();
+                }
+                
                 if(isLive) {
                     this.video.classList.add('live');
                     if(url.indexOf('.m3u8') === -1 && url.indexOf('.ts') > -1) url = url.replace('.ts', '.m3u8');
-                } else this.video.classList.remove('live');
+                } else {
+                    this.video.classList.remove('live');
+                }
 
                 if(isLive || url.includes('.m3u8')) this.startMonitor();
 
-                // Tentativa Nativa Otimizada
+                // CONFIGURAÇÃO DIFERENCIADA:
+                // TV AO VIVO: Config turbo para futebol
+                // VOD: Config padrão original
                 var canPlayNative = this.video.canPlayType('application/vnd.apple.mpegurl');
+                
                 if (canPlayNative === "probably" || canPlayNative === "maybe") {
                     this.video.src = url; 
                     this.video.play().catch(function(e){ 
-                        if(Hls.isSupported()) PlayerEngine.startHls(url); 
+                        if(Hls.isSupported()) PlayerEngine.startHls(url, isLive); 
                     });
                 } else if (Hls.isSupported()) {
-                    this.startHls(url);
+                    this.startHls(url, isLive);
                 } else {
                     this.video.src = url; 
                     this.video.play().catch(e => console.log(e));
                 }
             },
-            startHls: function(url) {
+            
+            startHls: function(url, isLive) {
                 if(this.hls) this.hls.destroy();
-                // --- MANTIVE A CONFIGURAÇÃO TURBO PARA FUTEBOL ---
-                var config = { 
-                    enableWorker: true, 
-                    maxBufferLength: 30, // Buffer alto para TV Philco
-                    maxMaxBufferLength: 60,
-                    startLevel: -1, 
-                    manifestLoadingTimeOut: 20000,
-                    capLevelToPlayerSize: true 
-                };
+                
+                var config;
+                
+                if (isLive) {
+                    // ⚡ CONFIGURAÇÃO TURBO PARA TV AO VIVO (FUTEBOL)
+                    config = { 
+                        enableWorker: true, 
+                        maxBufferLength: 30,
+                        maxMaxBufferLength: 60,
+                        maxBufferSize: 60 * 1000 * 1000,
+                        startLevel: -1, 
+                        manifestLoadingTimeOut: 20000,
+                        capLevelToPlayerSize: true,
+                        // Otimizações específicas para live
+                        liveSyncDurationCount: 3,
+                        liveMaxLatencyDurationCount: 10,
+                        maxFragLookUpTolerance: 0.2,
+                        fragLoadingTimeOut: 20000,
+                        fragLoadingMaxRetry: 6
+                    };
+                } else {
+                    // 🎬 CONFIGURAÇÃO ORIGINAL PARA FILMES/SÉRIES
+                    config = { 
+                        enableWorker: true, 
+                        maxBufferLength: 30,
+                        maxMaxBufferLength: 60,
+                        startLevel: -1, 
+                        manifestLoadingTimeOut: 20000,
+                        capLevelToPlayerSize: true
+                    };
+                }
+                
                 this.hls = new Hls(config);
                 this.hls.loadSource(url);
                 this.hls.attachMedia(this.video);
-                this.hls.on(Hls.Events.MANIFEST_PARSED, function() { PlayerEngine.video.play().catch(function(e){}); });
+                this.hls.on(Hls.Events.MANIFEST_PARSED, function() { 
+                    PlayerEngine.video.play().catch(function(e){});
+                });
                 this.hls.on(Hls.Events.ERROR, function(event, data) {
                     if (data.fatal) { 
-                        if(data.type === Hls.ErrorTypes.NETWORK_ERROR) PlayerEngine.hls.startLoad(); else PlayerEngine.recover(); 
+                        if(data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                            PlayerEngine.hls.startLoad();
+                        } else {
+                            PlayerEngine.recover();
+                        }
                     }
                 });
             },
+            
             startMonitor: function() {
                 this.stopMonitor();
                 this.monitorTimer = setInterval(function() {
                     var v = PlayerEngine.video;
                     if(!v || !PlayerEngine.url || v.paused) return;
-                    if(Math.abs(v.currentTime - PlayerEngine.lastTime) < 0.1) {
-                        PlayerEngine.stallCount++;
-                        if(PlayerEngine.stallCount > 5) { 
-                            App.osd("RECONECTANDO..."); PlayerEngine.recover(); 
+                    
+                    // Monitor mais agressivo apenas para TV AO VIVO
+                    if(App.mode === 'live') {
+                        if(Math.abs(v.currentTime - PlayerEngine.lastTime) < 0.1) {
+                            PlayerEngine.stallCount++;
+                            if(PlayerEngine.stallCount > 5) { 
+                                App.osd("RECONECTANDO..."); 
+                                PlayerEngine.recover(); 
+                            }
+                        } else { 
+                            PlayerEngine.stallCount = 0; 
+                            PlayerEngine.lastTime = v.currentTime; 
                         }
-                    } else { PlayerEngine.stallCount = 0; PlayerEngine.lastTime = v.currentTime; }
+                    }
                 }, 2000);
             },
-            stopMonitor: function() { if(this.monitorTimer) clearInterval(this.monitorTimer); },
+            
+            stopMonitor: function() { 
+                if(this.monitorTimer) clearInterval(this.monitorTimer); 
+                AntiStuckSystem.stopMonitoring();
+            },
+            
             recover: function() {
                 this.retryCount++;
-                if(this.retryCount > 8) { this.stop(); App.osd("FALHA DE SINAL"); return; }
-                setTimeout(function(){ 
+                if(this.retryCount > 8) { 
+                    this.stop(); 
+                    App.osd("FALHA DE SINAL");
+                    
+                    // Tenta servidor alternativo apenas para TV AO VIVO
+                    if (App.mode === 'live') {
+                        setTimeout(() => {
+                            AntiStuckSystem.tryAlternativeServer();
+                        }, 2000);
+                    }
+                    return; 
+                }
+                
+                App.osd("RECONECTANDO " + this.retryCount + "/8");
+                
+                setTimeout(() => { 
                     PlayerEngine.stop(); 
-                    setTimeout(function(){ 
+                    setTimeout(() => { 
                         if(App.mode === 'live' || PlayerEngine.url.includes('.m3u8')) {
-                            var v = document.getElementById('player'); v.load(); PlayerEngine.play(PlayerEngine.url, true);
+                            var v = document.getElementById('player'); 
+                            v.load(); 
+                            PlayerEngine.play(PlayerEngine.url, true);
                         }
                     }, 500); 
                 }, 1000);
             },
+            
             stop: function() { 
                 this.stopMonitor(); 
-                if(this.hls) { this.hls.destroy(); this.hls = null; } 
+                if(this.hls) { 
+                    this.hls.destroy(); 
+                    this.hls = null; 
+                } 
                 if(this.video) { 
                     this.video.pause(); 
-                    this.video.removeAttribute('src'); // Limpeza de memoria importante
+                    this.video.removeAttribute('src');
                     this.video.load(); 
                 } 
             }
@@ -436,10 +844,14 @@
                     } else document.getElementById('msg-login').innerText="Usuário/Senha Inválidos";
                 });
             },
+            
             logout: function() { localStorage.clear(); location.reload(); },
 
             setScr: function(n) {
-                if(n===1) { PlayerEngine.stop(); }
+                if(n===1) { 
+                    PlayerEngine.stop(); 
+                    AntiStuckSystem.disableForVOD();
+                }
                 document.querySelectorAll('.layer').forEach(function(l){l.classList.add('hide')});
                 if(n===0) document.getElementById('login-layer').classList.remove('hide');
                 if(n===1) document.getElementById('dash-layer').classList.remove('hide');
@@ -448,11 +860,19 @@
             },
 
             openMode: function(m) {
-                PlayerEngine.stop(); this.resetInfo();
-                this.mode = m; this.setScr(2); this.isFolder = false; this.globalData = null; this.playingId = null;
-                document.getElementById('cat-list').innerHTML = ''; document.getElementById('item-list').innerHTML = '';
-                document.getElementById('loader').classList.remove('hide');
+                PlayerEngine.stop(); 
+                AntiStuckSystem.disableForVOD(); // Desativa anti-travamento
                 
+                this.resetInfo();
+                this.mode = m; 
+                this.setScr(2); 
+                this.isFolder = false; 
+                this.globalData = null; 
+                this.playingId = null;
+                
+                document.getElementById('cat-list').innerHTML = ''; 
+                document.getElementById('item-list').innerHTML = '';
+                document.getElementById('loader').classList.remove('hide');
                 document.getElementById('search').value = '';
 
                 var act = (m==='live')?'get_live_categories':(m==='movie'?'get_vod_categories':'get_series_categories');
@@ -472,6 +892,7 @@
                 document.getElementById('meta-desc').innerText = "Selecione um conteúdo.";
                 document.getElementById('meta-epg').innerText = "";
                 document.getElementById('meta-epg').classList.add('hide');
+                document.getElementById('anti-stuck-status').classList.add('hide'); // Esconde status
                 var v = document.getElementById('player'); v.removeAttribute('src'); v.load();
             },
 
@@ -485,19 +906,28 @@
                 el.classList.add('active');
                 
                 document.getElementById('search').value = '';
-
                 document.getElementById('loader').classList.remove('hide');
                 document.getElementById('item-list').innerHTML = '';
 
                 var onData = function(d) {
                     document.getElementById('loader').classList.add('hide');
-                    if(d && d!=='ERR_NET') { App.fullData = d; App.isFolder = false; App.renderList(); }
+                    if(d && d!=='ERR_NET') { 
+                        App.fullData = d; 
+                        App.isFolder = false; 
+                        App.renderList(); 
+                    }
                 };
 
                 if(cid === 'fav') {
                      var act = (this.mode==='live')?'get_live_streams':(this.mode==='movie'?'get_vod_streams':'get_series');
                      this.req(this.creds.h+"/player_api.php?username="+this.creds.u+"&password="+this.creds.p+"&action="+act, function(d){
-                        if(d && d!=='ERR_NET') { App.fullData = d.filter(function(x){ return FavManager.isFav(x.stream_id || x.series_id); }); App.isFolder=false; App.renderList(); }
+                        if(d && d!=='ERR_NET') { 
+                            App.fullData = d.filter(function(x){ 
+                                return FavManager.isFav(x.stream_id || x.series_id); 
+                            }); 
+                            App.isFolder=false; 
+                            App.renderList(); 
+                        }
                         document.getElementById('loader').classList.add('hide');
                      });
                 } else {
@@ -509,7 +939,10 @@
             renderList: function(keepIdx) {
                 var d = this.fullData;
                 var max = d.length > 200 ? 200 : d.length; 
-                if(max===0) { document.getElementById('item-list').innerHTML = '<div style="padding:20px;">Vazio</div>'; return; }
+                if(max===0) { 
+                    document.getElementById('item-list').innerHTML = '<div style="padding:20px;">Vazio</div>'; 
+                    return; 
+                }
                 var h = '';
                 for(var i=0; i<max; i++) {
                     var n = d[i].name || d[i].title;
@@ -552,17 +985,28 @@
                 
                 this.playingId = id; 
                 document.getElementById('meta-title').innerText = item.name || item.title;
-                document.getElementById('meta-desc').innerText = "Carregando...";
+                document.getElementById('meta-desc').innerText = item.description || "Carregando...";
                 document.getElementById('meta-epg').classList.add('hide');
                 
+                // Apenas para TV AO VIVO: busca EPG e mostra status
                 if(this.mode === 'live') {
+                    document.getElementById('anti-stuck-status').classList.remove('hide');
+                    
                     this.req(this.creds.h+"/player_api.php?username="+this.creds.u+"&password="+this.creds.p+"&action=get_short_epg&stream_id="+id, function(d){
                         if(d && d.epg_listings && d.epg_listings.length > 0) {
-                            var t = d.epg_listings[0].title; try { if(window.atob && /^[A-Za-z0-9+/=]+$/.test(t)) t=atob(t); }catch(e){}
-                            document.getElementById('meta-epg').innerText = t; document.getElementById('meta-epg').classList.remove('hide');
+                            var t = d.epg_listings[0].title; 
+                            try { 
+                                if(window.atob && /^[A-Za-z0-9+/=]+$/.test(t)) t=atob(t); 
+                            }catch(e){}
+                            document.getElementById('meta-epg').innerText = t; 
+                            document.getElementById('meta-epg').classList.remove('hide');
                         }
                     });
+                } else {
+                    // Para filmes/séries: esconde status anti-travamento
+                    document.getElementById('anti-stuck-status').classList.add('hide');
                 }
+                
                 PlayerEngine.play(url, this.mode==='live');
                 document.querySelectorAll('.item').forEach(function(e){e.classList.remove('playing')});
                 var r = document.getElementById('row-'+this.idx); if(r) r.classList.add('playing');
@@ -576,14 +1020,15 @@
                 }
             },
 
-            // --- RESTAURADO: PESQUISA MANUAL (SEM TIMER) ---
             doSearch: function() {
                 var t = document.getElementById('search').value.toLowerCase();
                 if(t.length < 2) return;
                 document.getElementById('item-list').innerHTML = '<div style="padding:20px">Buscando...</div>';
                 var cb = function(d) {
                     if(d && d!=='ERR_NET') { 
-                        App.fullData = d.filter(function(x){ return (x.name||x.title||"").toLowerCase().indexOf(t) > -1 }); 
+                        App.fullData = d.filter(function(x){ 
+                            return (x.name||x.title||"").toLowerCase().indexOf(t) > -1 
+                        }); 
                         App.isFolder = false; 
                         App.renderList(); 
                         
@@ -595,29 +1040,70 @@
                 if(App.globalData) cb(App.globalData);
                 else {
                     var act = (App.mode==='live')?'get_live_streams':(App.mode==='movie'?'get_vod_streams':'get_series');
-                    App.req(App.creds.h+"/player_api.php?username="+App.creds.u+"&password="+App.creds.p+"&action="+act, function(d){ App.globalData=d; cb(d); });
+                    App.req(App.creds.h+"/player_api.php?username="+App.creds.u+"&password="+App.creds.p+"&action="+act, function(d){ 
+                        App.globalData=d; 
+                        cb(d); 
+                    });
                 }
             },
             
             toggleFull: function() {
-                var b = document.getElementById('vid-box'); if(b.classList.contains('fs')) this.exitFull(); else { b.classList.add('fs'); App.osd("TELA CHEIA"); }
+                var b = document.getElementById('vid-box'); 
+                if(b.classList.contains('fs')) this.exitFull(); 
+                else { 
+                    b.classList.add('fs'); 
+                    App.osd("TELA CHEIA");
+                }
             },
+            
             exitFull: function() { 
                 document.getElementById('vid-box').classList.remove('fs'); 
                 this.syncFocusToPlaying();
             },
-            osd: function(t) { var o=document.getElementById('osd'); o.innerText=t; o.style.display='block'; setTimeout(function(){o.style.display='none'},2000); },
+            
+            osd: function(t) { 
+                var o=document.getElementById('osd'); 
+                o.innerText=t; 
+                o.style.display='block'; 
+                setTimeout(function(){o.style.display='none'},2000); 
+            },
             
             back: function() {
-                if(document.getElementById('vid-box').classList.contains('fs')) { this.exitFull(); return; }
-                if(this.zone===3) { this.zone=2; this.syncFocusToPlaying(); this.updateFocus(); return; }
-                if(this.zone===2 && this.isFolder) {
-                    this.isFolder = false; this.fullData = this.storedList; this.renderList(true); 
-                    this.idx = this.memIdx; this.updateFocus(); document.getElementById('meta-title').innerText = "R&C GOLD"; return; 
+                if(document.getElementById('vid-box').classList.contains('fs')) { 
+                    this.exitFull(); 
+                    return; 
                 }
-                if(this.zone===2) { this.zone=0; this.idx=this.lastCatIdx; this.updateFocus(); return; }
-                if(this.zone===1) { this.zone=2; this.idx=0; this.updateFocus(); return; }
-                if(this.zone===0) { this.setScr(1); return; }
+                if(this.zone===3) { 
+                    this.zone=2; 
+                    this.syncFocusToPlaying(); 
+                    this.updateFocus(); 
+                    return; 
+                }
+                if(this.zone===2 && this.isFolder) {
+                    this.isFolder = false; 
+                    this.fullData = this.storedList; 
+                    this.renderList(true); 
+                    this.idx = this.memIdx; 
+                    this.updateFocus(); 
+                    document.getElementById('meta-title').innerText = "R&C GOLD"; 
+                    return; 
+                }
+                if(this.zone===2) { 
+                    this.zone=0; 
+                    this.idx=this.lastCatIdx; 
+                    this.updateFocus(); 
+                    return; 
+                }
+                if(this.zone===1) { 
+                    this.zone=2; 
+                    this.idx=0; 
+                    this.updateFocus(); 
+                    return; 
+                }
+                if(this.zone===0) { 
+                    this.setScr(1); 
+                    return; 
+                }
             },
             
             updateFocus: function() {
@@ -645,8 +1131,12 @@
                     if(el.tagName!=='INPUT') el.scrollIntoView({block:'center',behavior:'smooth'}); 
                 }
             },
+            
             move: function(d) {
-                if(this.scr===0) { if(d===1&&this.idx<3) this.idx++; if(d===0&&this.idx>0) this.idx--; }
+                if(this.scr===0) { 
+                    if(d===1&&this.idx<3) this.idx++; 
+                    if(d===0&&this.idx>0) this.idx--; 
+                }
                 if(this.scr===1) { 
                     if(this.idx <= 2) { 
                         if(d===3 && this.idx<2) this.idx++; 
@@ -663,7 +1153,8 @@
                             this.zone=2; 
                             this.syncFocusToPlaying(); 
                             this.updateFocus(); 
-                        } return; 
+                        } 
+                        return; 
                     }
                     if(this.zone===0) { 
                         var max = document.getElementById('cat-list').children.length-1;
@@ -688,6 +1179,7 @@
                 }
                 this.updateFocus();
             },
+            
             enter: function() {
                 if(this.scr===0) this.login();
                 if(this.scr===1) { 
@@ -708,7 +1200,24 @@
         document.addEventListener('keydown', function(e) {
             var k=e.keyCode;
             
-            // --- INPUT RESTAURADO (MANUAL) ---
+            // --- ANTI-TRAVAMENTO APENAS PARA TV AO VIVO ---
+            if (App.mode === 'live') {
+                // Tecla F5 para otimizar futebol
+                if(k === 116) { // F5
+                    e.preventDefault();
+                    AntiStuckSystem.manualOptimize();
+                    return;
+                }
+                
+                // Tecla O para otimização rápida
+                if(k === 79 || k === 111) { // O
+                    AntiStuckSystem.manualOptimize();
+                    return;
+                }
+            }
+            // ----------------------------------------------
+            
+            // INPUT RESTAURADO (MANUAL)
             if(document.activeElement.tagName === 'INPUT') {
                 if(App.scr === 0) {
                     if(k === 13) { e.preventDefault(); App.login(); return; } 
@@ -723,7 +1232,6 @@
                     return; 
                 }
             }
-            // ------------------------------------
 
             if(App.scr === 0) {
                 if(k===13) {
@@ -736,7 +1244,7 @@
                 }
             }
 
-            // CONTROLES VOD 
+            // CONTROLES VOD - APENAS PARA FILMES/SÉRIES (MODO ORIGINAL)
             if(App.scr===2 && App.mode!=='live' && document.getElementById('vid-box').classList.contains('fs')) {
                 var v = document.getElementById('player');
                 if(k===39 || k===417) { v.currentTime += 30; App.osd(">> 30s"); return; } 
@@ -747,15 +1255,25 @@
                 }
             }
 
-            if(k===48 || k===96) { if(App.scr===2 && App.zone===2) { var it=App.fullData[App.idx]; if(it) FavManager.toggle(it.stream_id||it.series_id); } }
+            // Tecla * para favoritos
+            if(k===48 || k===96) { 
+                if(App.scr===2 && App.zone===2) { 
+                    var it=App.fullData[App.idx]; 
+                    if(it) FavManager.toggle(it.stream_id||it.series_id); 
+                } 
+            }
+            
             if(document.getElementById('vid-box').classList.contains('fs')) { 
                 e.preventDefault(); 
                 if(k===13||k===403||k===82||k===27||k===461) App.toggleFull(); 
                 return; 
             }
             
-            if(k===37) { e.preventDefault(); App.move(2); } if(k===38) { e.preventDefault(); App.move(0); }
-            if(k===39) { e.preventDefault(); App.move(3); } if(k===40) { e.preventDefault(); App.move(1); }
+            // Controles de navegação padrão
+            if(k===37) { e.preventDefault(); App.move(2); } 
+            if(k===38) { e.preventDefault(); App.move(0); }
+            if(k===39) { e.preventDefault(); App.move(3); } 
+            if(k===40) { e.preventDefault(); App.move(1); }
             if(k===13) { e.preventDefault(); App.enter(); }
             if(k===8||k===27||k===461) { e.preventDefault(); if(App.scr>0) App.back(); }
             
