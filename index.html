@@ -3,18 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>R&C GOLD - PHILCO EDITION</title>
+    <title>R&C GOLD</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
     <style>
-        /* --- TEMA R&C GOLD OTIMIZADO PARA TVS --- */
+        /* --- TEMA R&C GOLD --- */
         :root { 
             --bg: #000000; 
             --gold: #FFD700; 
-            --card-bg: #1a1a1a; /* Removido gradiente para performance */
-            --focus-grad: #FFD700; /* Gradiente simples para performance */
+            --card-bg: #1a1a1a;
+            --focus-grad: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
         }
         
         * { margin: 0; padding: 0; box-sizing: border-box; outline: none; user-select: none; -webkit-tap-highlight-color: transparent; }
@@ -24,34 +24,27 @@
             color: #fff;
             font-family: 'Montserrat', sans-serif;
             width: 100vw; height: 100vh; overflow: hidden;
-            /* OTIMIZAÇÃO PHILCO: Fundo sólido economiza GPU */
-            background: #000;
-        }
-
-        /* AJUDA NAVEGAÇÃO NETRANGE/OPERA */
-        .focusable, .smart-card, .cat-item, .item, .btn, .power-btn {
-            nav-index: auto; nav-up: auto; nav-down: auto; nav-left: auto; nav-right: auto;
+            background: #000; /* Fundo preto sólido para performance */
         }
 
         .hide { display: none !important; }
         .flex-center { display: flex; align-items: center; justify-content: center; }
         .layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; background: #000; }
 
-        /* CURSOR MÃOZINHA */
+        /* CURSOR */
         button, .smart-card, .cat-item, .item, .power-btn, .key { cursor: pointer; }
 
-        /* FOCO PADRÃO */
+        /* FOCO */
         .focused {
             border: 3px solid #fff !important;
             background: var(--focus-grad) !important;
             color: #000 !important;
-            transform: scale(1.02); /* Scale menor para evitar lag */
+            transform: scale(1.02);
             z-index: 50;
-            box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
-            will-change: transform;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
         }
         
-        /* CORREÇÃO DO PLAYER (PREVIEW) */
+        /* CORREÇÃO DO FOCO NA PREVIEW */
         #vid-box.focused {
             transform: none !important;
             border: 4px solid var(--gold) !important;
@@ -69,6 +62,14 @@
             width: 100vw !important; height: 100vh !important;
             z-index: 9999 !important;
             background: #000;
+        }
+
+        /* AJUSTE PARA O VÍDEO EM TELA CHEIA FICAR 100% */
+        #vid-box.fs video {
+            width: 100% !important;
+            height: 100% !important;
+            max-width: none !important;
+            max-height: none !important;
         }
 
         .focused i, .focused span, .focused div { color: #000 !important; }
@@ -160,7 +161,7 @@
 
         .col-play { flex: 1; background: #000; display: flex; flex-direction: column; position: relative; }
         
-        /* JANELINHA CORRIGIDA */
+        /* --- CORREÇÃO DA JANELINHA (PREVIEW) --- */
         .vid-box { 
             width: 100%; 
             height: 45vh; 
@@ -168,13 +169,21 @@
             position: relative; 
             border-bottom: 2px solid #333;
             overflow: hidden; 
+
+            /* Centraliza o vídeo usando Flexbox (mais compatível que object-fit sozinho em algumas TVs) */
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
         video { 
-            width: 100% !important; 
-            height: 100% !important; 
+            /* O segredo: Auto width/height + Max 100% garante que o vídeo não estique */
+            width: auto; 
+            height: auto; 
+            max-width: 100%;
+            max-height: 100%;
+            
             background: #000; 
-            object-fit: contain !important; /* Sem zoom */
             outline: none;
             border: none;
         }
@@ -301,7 +310,7 @@
             isFav: function(id) { return this.list.indexOf(id) > -1; }
         };
 
-        // --- MOTOR HÍBRIDO OTIMIZADO PARA PHILCO ---
+        // --- MOTOR HÍBRIDO (Mantido e Estável) ---
         var PlayerEngine = {
             hls: null, video: null, url: null, retryCount: 0, monitorTimer: null, lastTime: 0, stallCount: 0, 
             isRecovering: false, isHlsContent: false,
@@ -348,21 +357,20 @@
             startHls: function(url, isLive) {
                 if(this.hls) this.hls.destroy();
 
-                // CONFIGURAÇÃO ULTRA LEVE PARA CPU DE TV
                 var config = { 
                     enableWorker: true,
-                    enableSoftwareAES: false, // Menos CPU
+                    enableSoftwareAES: false,
                     manifestLoadingTimeOut: 20000, 
-                    capLevelToPlayerSize: true // Economiza banda e GPU
                 };
 
                 if(isLive) {
                     config.liveSyncDurationCount = 2; 
                     config.maxMaxBufferLength = 10;   
                     config.startLevel = -1;
+                    config.liveMaxLatencyDurationCount = 10; 
                 } else {
-                    config.maxBufferLength = 20; // Reduzido para economizar RAM
-                    config.maxMaxBufferLength = 40;
+                    config.maxBufferLength = 30;
+                    config.maxMaxBufferLength = 60;
                 }
 
                 this.hls = new Hls(config);
@@ -378,6 +386,7 @@
                 this.hls.on(Hls.Events.ERROR, function(event, data) {
                     if (data.fatal) {
                         if(data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                             console.log("Rede instável, recuperando...");
                              PlayerEngine.hls.startLoad();
                         } else {
                              PlayerEngine.handleError();
@@ -427,7 +436,6 @@
                 if(this.isRecovering) return;
                 this.isRecovering = true;
                 this.retryCount++;
-
                 if(this.retryCount > 10) { 
                     this.stop(); 
                     App.osd("ERRO: ARQUIVO NÃO SUPORTADO"); 
@@ -447,6 +455,7 @@
                          if(t > 0) this.video.currentTime = t;
                     }).catch(e => {});
                 }
+
                 setTimeout(function(){ PlayerEngine.isRecovering = false; }, 3000);
             },
 
@@ -457,11 +466,7 @@
                     this.video.pause(); 
                     this.video.removeAttribute('src'); 
                     this.video.load(); 
-                    // LIMPEZA FORÇADA PARA NETRANGE/PHILCO
-                    this.video.innerHTML = ""; 
                 } 
-                // COLETA DE LIXO MANUAL (TVS)
-                if(window.gc) window.gc();
             }
         };
 
@@ -808,27 +813,27 @@
         document.addEventListener('keydown', function(e) {
             var k=e.keyCode;
             
-            // TECLAS ESPECIAIS PHILCO / NETRANGE
-            if(k === 10009 || k === 88) { e.preventDefault(); if(App.scr>0) App.back(); return; } // Back
-            if(k === 29443) { e.preventDefault(); App.enter(); return; } // Enter Especial
-            
-            // --- CORREÇÃO IMPORTANTE DE INPUT ---
+            // --- CORREÇÃO DE INPUT (DESTRAVA DE NAVEGAÇÃO) ---
             if(document.activeElement.tagName === 'INPUT') {
                 if(App.scr === 0) {
-                    if(k === 13 || k === 29443) { e.preventDefault(); App.login(); return; } 
+                    if(k === 13) { e.preventDefault(); App.login(); return; } 
                     if(k === 40) { e.preventDefault(); App.move(1); return; } 
                     if(k === 38) { e.preventDefault(); App.move(0); return; } 
                     return; 
                 }
                 if(App.scr === 2) {
-                    if(k === 13 || k === 29443) { App.doSearch(); return; } 
+                    // SE APERTAR BAIXO, VAI PARA A LISTA
                     if(k === 40) { e.preventDefault(); App.zone=2; App.idx=0; App.updateFocus(); return; } 
+                    // SE APERTAR ESQUERDA OU VOLTAR, SAI DA BUSCA
+                    if(k === 37 || k === 8 || k === 461) { e.preventDefault(); App.zone=0; App.idx=App.lastCatIdx; App.updateFocus(); return; }
+                    
+                    if(k === 13) { App.doSearch(); return; } 
                     return; 
                 }
             }
 
             if(App.scr === 0) {
-                if(k===13 || k===29443) {
+                if(k===13) {
                     e.preventDefault(); 
                     if(App.idx === 3) {
                         document.activeElement.blur(); 
@@ -843,7 +848,7 @@
                 var v = document.getElementById('player');
                 if(k===39 || k===417) { v.currentTime += 30; App.osd(">> 30s"); return; } 
                 if(k===37 || k===412) { v.currentTime -= 30; App.osd("<< 30s"); return; } 
-                if(k===13 || k===415 || k===19 || k===179 || k===29443) { 
+                if(k===13 || k===415 || k===19 || k===179) { 
                    if(v.paused) { v.play(); App.osd("▶ PLAY"); } else { v.pause(); App.osd("⏸ PAUSE"); }
                    return;
                 }
@@ -852,13 +857,13 @@
             if(k===48 || k===96) { if(App.scr===2 && App.zone===2) { var it=App.fullData[App.idx]; if(it) FavManager.toggle(it.stream_id||it.series_id); } }
             if(document.getElementById('vid-box').classList.contains('fs')) { 
                 e.preventDefault(); 
-                if(k===13||k===403||k===82||k===27||k===461||k===10009||k===29443) App.toggleFull(); 
+                if(k===13||k===403||k===82||k===27||k===461) App.toggleFull(); 
                 return; 
             }
             
             if(k===37) { e.preventDefault(); App.move(2); } if(k===38) { e.preventDefault(); App.move(0); }
             if(k===39) { e.preventDefault(); App.move(3); } if(k===40) { e.preventDefault(); App.move(1); }
-            if(k===13 || k===29443) { e.preventDefault(); App.enter(); }
+            if(k===13) { e.preventDefault(); App.enter(); }
             if(k===8||k===27||k===461) { e.preventDefault(); if(App.scr>0) App.back(); }
             
             if(k===403||k===82) if(App.scr===2) App.toggleFull(); 
