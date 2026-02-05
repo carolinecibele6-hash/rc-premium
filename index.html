@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>R&C GOLD V41 UNIVERSAL</title>
+    <title>R&C GOLD V41 - HYBRID TURBO</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
@@ -42,7 +42,6 @@
             transform: scale(1.05);
             z-index: 50;
             box-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
-            /* OTIMIZAÇÃO DE RENDERIZAÇÃO */
             will-change: transform;
         }
         
@@ -289,98 +288,169 @@
             isFav: function(id) { return this.list.indexOf(id) > -1; }
         };
 
+        // --- MOTOR HÍBRIDO (TURBO LIVE + VOD NATIVO) ---
         var PlayerEngine = {
-            hls: null, video: null, url: null, retryCount: 0, monitorTimer: null, lastTime: 0, stallCount: 0, recovering: false,
+            hls: null, video: null, url: null, retryCount: 0, monitorTimer: null, lastTime: 0, stallCount: 0, 
+            isRecovering: false, isHlsContent: false,
+
             init: function() { 
                 this.video = document.getElementById('player'); 
-                this.video.onerror = function() { PlayerEngine.recover(); };
+                this.video.addEventListener('contextmenu', (e) => { e.preventDefault(); return false; });
+                this.video.onerror = function() { PlayerEngine.handleError(); };
             },
+
             play: function(url, isLive) {
-                this.recovering = false;
+                this.isRecovering = false;
                 if(this.url === url && !this.video.paused) return;
-                this.stop(); this.url = url; this.retryCount = 0; this.stallCount = 0;
+                
+                this.stop(); 
+                this.url = url; 
+                this.retryCount = 0; 
+                this.stallCount = 0;
                 this.video.controls = false; 
+
+                // Verifica se é conteúdo HLS (.m3u8) ou Arquivo Direto (.mp4, .mkv, etc)
+                this.isHlsContent = url.includes('.m3u8') || isLive;
+
                 if(isLive) {
                     this.video.classList.add('live');
                     if(url.indexOf('.m3u8') === -1 && url.indexOf('.ts') > -1) url = url.replace('.ts', '.m3u8');
-                } else this.video.classList.remove('live');
-
-                if(isLive || url.includes('.m3u8')) this.startMonitor();
-
-                if(!isLive && !url.includes('.m3u8')) {
-                    this.video.src = url; this.video.play().catch(function(e){ console.log(e); }); return;
+                } else {
+                    this.video.classList.remove('live');
                 }
-                
-                var canPlayNative = this.video.canPlayType('application/vnd.apple.mpegurl');
-                if (canPlayNative === "probably" || canPlayNative === "maybe") {
-                    this.video.src = url; 
-                    this.video.play().catch(function(e){ 
-                        if(Hls.isSupported()) PlayerEngine.startHls(url); 
+
+                this.startMonitor();
+
+                // --- LÓGICA DE DECISÃO DE PLAYER ---
+                if (this.isHlsContent && Hls.isSupported()) {
+                    // MODO 1: HLS.js (Para TV ao Vivo e Filmes m3u8)
+                    console.log("Iniciando Modo HLS (Turbo)");
+                    this.startHls(url, isLive); 
+                } else {
+                    // MODO 2: NATIVO (Para MP4, MKV, AVI - Filmes e Séries comuns)
+                    console.log("Iniciando Modo Nativo (MP4/MKV)");
+                    this.video.src = url;
+                    this.video.play().catch(function(e){
+                        console.log("Erro Play Nativo:", e);
                     });
-                } else if (Hls.isSupported()) {
-                    this.startHls(url);
                 }
             },
-            startHls: function(url) {
+
+            startHls: function(url, isLive) {
                 if(this.hls) this.hls.destroy();
-                // --- CONFIGURAÇÃO ULTRA VELOZ E ESTÁVEL ---
+
                 var config = { 
-                    enableWorker: true, 
-                    maxBufferLength: 30, // Aumentado para 30s (estabilidade)
-                    maxMaxBufferLength: 60, 
-                    backBufferLength: 60, // Permite voltar um pouco sem travar
-                    startLevel: -1, 
-                    manifestLoadingTimeOut: 20000,
-                    fragLoadingTimeOut: 20000,
-                    levelLoadingTimeOut: 20000,
-                    enableSoftwareAES: false, // Performance
-                    capLevelToPlayerSize: true // Economiza GPU
+                    enableWorker: true,
+                    enableSoftwareAES: false,
+                    manifestLoadingTimeOut: 20000, 
                 };
+
+                if(isLive) {
+                    // --- MODO TURBO LIVE ---
+                    config.liveSyncDurationCount = 2; 
+                    config.maxMaxBufferLength = 10;   
+                    config.startLevel = -1;
+                    config.liveMaxLatencyDurationCount = 10; 
+                } else {
+                    // --- MODO VOD HLS ---
+                    config.maxBufferLength = 30;
+                    config.maxMaxBufferLength = 60;
+                }
+
                 this.hls = new Hls(config);
                 this.hls.loadSource(url);
                 this.hls.attachMedia(this.video);
-                this.hls.on(Hls.Events.MANIFEST_PARSED, function() { PlayerEngine.video.play().catch(function(e){}); });
+
+                this.hls.on(Hls.Events.MANIFEST_PARSED, function() { 
+                    PlayerEngine.video.play().catch(function(e){
+                         PlayerEngine.video.muted = true; PlayerEngine.video.play();
+                    }); 
+                });
+
                 this.hls.on(Hls.Events.ERROR, function(event, data) {
-                    if (data.fatal) { 
+                    if (data.fatal) {
                         if(data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                             console.log("Network Error - Tentando recuperar...");
-                             PlayerEngine.hls.startLoad(); 
-                        } else PlayerEngine.recover(); 
+                             console.log("Rede instável, recuperando...");
+                             PlayerEngine.hls.startLoad();
+                        } else {
+                             PlayerEngine.handleError();
+                        }
                     }
                 });
             },
+
             startMonitor: function() {
                 this.stopMonitor();
                 this.monitorTimer = setInterval(function() {
                     var v = PlayerEngine.video;
                     if(!v || !PlayerEngine.url || v.paused) return;
-                    // Detecção de congelamento
+
+                    // Verifica se congelou
                     if(Math.abs(v.currentTime - PlayerEngine.lastTime) < 0.1) {
                         PlayerEngine.stallCount++;
-                        if(PlayerEngine.stallCount > 8) { // 8x2 = 16s tolerância antes de resetar
-                            App.osd("RECONECTANDO..."); PlayerEngine.recover(); 
+                        
+                        if(PlayerEngine.stallCount >= 3) { 
+                            if(App.mode === 'live' && PlayerEngine.isHlsContent) {
+                                // Recuperação de LIVE
+                                if(PlayerEngine.hls && PlayerEngine.hls.liveSyncPosition) {
+                                    v.currentTime = PlayerEngine.hls.liveSyncPosition; 
+                                } else if(v.seekable.length > 0) {
+                                    v.currentTime = v.seekable.end(0) - 1; 
+                                }
+                                PlayerEngine.stallCount = 0; 
+                            } else {
+                                // Recuperação de VOD
+                                if(PlayerEngine.stallCount > 5) { 
+                                    console.log("VOD Travado - Tentando pular 5s");
+                                    v.currentTime += 5;
+                                    PlayerEngine.stallCount = 0;
+                                }
+                            }
                         }
-                    } else { PlayerEngine.stallCount = 0; PlayerEngine.lastTime = v.currentTime; }
-                }, 2000);
+                    } else { 
+                        PlayerEngine.stallCount = 0; 
+                        PlayerEngine.lastTime = v.currentTime; 
+                        
+                        if(PlayerEngine.isRecovering) {
+                            PlayerEngine.isRecovering = false;
+                            var osd = document.getElementById('osd'); if(osd) osd.style.display = 'none';
+                        }
+                    }
+                }, 1000);
             },
+
             stopMonitor: function() { if(this.monitorTimer) clearInterval(this.monitorTimer); },
-            recover: function() {
-                this.recovering = true; // Marca que estamos recuperando
+
+            handleError: function() {
+                if(this.isRecovering) return;
+                this.isRecovering = true;
                 this.retryCount++;
-                if(this.retryCount > 10) { this.stop(); App.osd("FALHA DE SINAL"); return; }
+                console.log("Erro detectado. Tentativa: " + this.retryCount);
+
+                if(this.retryCount > 10) { 
+                    this.stop(); 
+                    App.osd("ERRO: ARQUIVO NÃO SUPORTADO"); 
+                    return; 
+                }
                 
-                // Tenta recarregar sem matar o player completamente para não sair do fullscreen
-                if(this.hls) {
+                if(App.mode === 'live' && this.hls) {
+                    this.hls.swapAudioCodec(); 
                     this.hls.recoverMediaError();
                 } else {
-                     // Recarrega nativo
-                     var curr = this.video.currentTime;
-                     this.video.load();
-                     this.video.play().then(function(){
-                         if(!App.mode==='live') PlayerEngine.video.currentTime = curr;
-                     }).catch(function(){});
+                    // Recovery padrão (VOD Nativo)
+                    var t = this.video.currentTime;
+                    var src = this.video.src;
+                    this.video.src = "";
+                    this.video.src = src;
+                    this.video.load();
+                    this.video.play().then(() => {
+                         if(t > 0) this.video.currentTime = t;
+                    }).catch(e => {});
                 }
+
+                setTimeout(function(){ PlayerEngine.isRecovering = false; }, 3000);
             },
+
             stop: function() { 
                 this.stopMonitor(); 
                 if(this.hls) { this.hls.destroy(); this.hls = null; } 
@@ -404,11 +474,8 @@
                 }
                 PlayerEngine.init();
                 
-                // --- CORREÇÃO DO FULLSCREEN AO TRAVAR ---
                 document.getElementById('player').onended = function() { 
-                    // Só sai do fullscreen se NÃO for Live e NÃO estiver tentando recuperar
-                    if(App.mode === 'live' || PlayerEngine.recovering) {
-                        // Tenta dar play novamente ao invés de sair
+                    if(App.mode === 'live' || PlayerEngine.isRecovering) {
                         PlayerEngine.video.play().catch(function(){});
                     } else if(App.mode==='series' && App.isFolder && App.idx < App.seriesEps.length-1) {
                         App.idx++; App.updateFocus(); App.playStream(App.seriesEps[App.idx]);
@@ -435,7 +502,6 @@
             req: function(url, cb) {
                 var x = new XMLHttpRequest(); x.open("GET", url, true); x.timeout = 25000;
                 x.onload = function() { if(x.status===200) { try{cb(JSON.parse(x.responseText));}catch(e){cb(null);} } else cb(null); };
-                // AQUI DETECTA ERRO DE CONEXÃO/CORS
                 x.onerror = function(){ cb('ERR_NET'); }; 
                 x.send();
             },
@@ -741,24 +807,18 @@
             
             // --- CORREÇÃO IMPORTANTE DE INPUT ---
             if(document.activeElement.tagName === 'INPUT') {
-                
-                // SE ESTIVER NA TELA DE LOGIN (Screen 0)
                 if(App.scr === 0) {
-                    if(k === 13) { e.preventDefault(); App.login(); return; } // ENTER JÁ CONECTA
-                    if(k === 40) { e.preventDefault(); App.move(1); return; } // SETA BAIXO FUNCIONA
-                    if(k === 38) { e.preventDefault(); App.move(0); return; } // SETA CIMA FUNCIONA
-                    // Outras teclas (letras, numeros) funcionam normalmente
+                    if(k === 13) { e.preventDefault(); App.login(); return; } 
+                    if(k === 40) { e.preventDefault(); App.move(1); return; } 
+                    if(k === 38) { e.preventDefault(); App.move(0); return; } 
                     return; 
                 }
-
-                // SE ESTIVER NA TELA DE BUSCA (Screen 2)
                 if(App.scr === 2) {
                     if(k === 13) { App.doSearch(); return; } 
                     if(k === 40) { e.preventDefault(); App.zone=2; App.idx=0; App.updateFocus(); return; } 
-                    return; // Bloqueia outras navegações
+                    return; 
                 }
             }
-            // ------------------------------------
 
             if(App.scr === 0) {
                 if(k===13) {
