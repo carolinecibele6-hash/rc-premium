@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>R&C GOLD - LIVE TV</title>
+    <title>R&C GOLD PRO</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
@@ -207,7 +207,7 @@
                 <div id="clock-time" class="clock-time">12:00</div>
                 <div id="clock-date" class="clock-date">--/--/----</div>
             </div>
-            <div id="m1" class="power-btn focusable" onclick="App.logout()">
+            <div id="m3" class="power-btn focusable" onclick="App.logout()">
                 <i class="fas fa-power-off"></i>
             </div>
         </div>
@@ -216,7 +216,13 @@
             <div id="m0" class="smart-card focusable" onclick="App.openMode('live')">
                 <i class="fas fa-tv"></i><span>TV AO VIVO</span>
             </div>
+            <div id="m1" class="smart-card focusable" onclick="App.openMode('movie')">
+                <i class="fas fa-film"></i><span>FILMES</span>
             </div>
+            <div id="m2" class="smart-card focusable" onclick="App.openMode('series')">
+                <i class="fas fa-video"></i><span>SÉRIES</span>
+            </div>
+        </div>
 
         <div class="bottom-bar">
             <div class="info-pill">
@@ -307,12 +313,13 @@
             },
             startHls: function(url) {
                 if(this.hls) this.hls.destroy();
+                // --- MANTIVE A CONFIGURAÇÃO TURBO PARA FUTEBOL ---
                 var config = { 
-                    enableWorker: true, 
-                    maxBufferLength: 30, // Buffer alto para TV Philco
-                    maxMaxBufferLength: 60,
+                    enableWorker: false, 
+                    maxBufferLength: 5, // Buffer alto para TV Philco
+                    maxMaxBufferLength: 10,
                     startLevel: -1, 
-                    manifestLoadingTimeOut: 20000,
+                    manifestLoadingTimeOut: 10000,
                     capLevelToPlayerSize: true 
                 };
                 this.hls = new Hls(config);
@@ -374,7 +381,9 @@
                 }
                 PlayerEngine.init();
                 document.getElementById('player').onended = function() { 
-                    App.exitFull(); 
+                    if(App.mode==='series' && App.isFolder && App.idx < App.seriesEps.length-1) {
+                        App.idx++; App.updateFocus(); App.playStream(App.seriesEps[App.idx]);
+                    } else App.exitFull(); 
                 };
                 setInterval(this.updateClock, 1000);
                 this.updateClock();
@@ -446,8 +455,7 @@
                 
                 document.getElementById('search').value = '';
 
-                // Como só tem Live, simplifiquei a verificação, mas mantive a estrutura caso precise no futuro
-                var act = 'get_live_categories';
+                var act = (m==='live')?'get_live_categories':(m==='movie'?'get_vod_categories':'get_series_categories');
                 this.req(this.creds.h+"/player_api.php?username="+this.creds.u+"&password="+this.creds.p+"&action="+act, function(d){
                     document.getElementById('loader').classList.add('hide');
                     if(d && d!=='ERR_NET') {
@@ -487,13 +495,13 @@
                 };
 
                 if(cid === 'fav') {
-                     var act = 'get_live_streams';
+                     var act = (this.mode==='live')?'get_live_streams':(this.mode==='movie'?'get_vod_streams':'get_series');
                      this.req(this.creds.h+"/player_api.php?username="+this.creds.u+"&password="+this.creds.p+"&action="+act, function(d){
-                        if(d && d!=='ERR_NET') { App.fullData = d.filter(function(x){ return FavManager.isFav(x.stream_id); }); App.isFolder=false; App.renderList(); }
+                        if(d && d!=='ERR_NET') { App.fullData = d.filter(function(x){ return FavManager.isFav(x.stream_id || x.series_id); }); App.isFolder=false; App.renderList(); }
                         document.getElementById('loader').classList.add('hide');
                      });
                 } else {
-                    var act = 'get_live_streams';
+                    var act = (this.mode==='live')?'get_live_streams':(this.mode==='movie'?'get_vod_streams':'get_series');
                     this.req(this.creds.h+"/player_api.php?username="+this.creds.u+"&password="+this.creds.p+"&action="+act+"&category_id="+cid, onData);
                 }
             },
@@ -505,7 +513,7 @@
                 var h = '';
                 for(var i=0; i<max; i++) {
                     var n = d[i].name || d[i].title;
-                    var id = d[i].stream_id;
+                    var id = d[i].stream_id || d[i].series_id;
                     var icn = FavManager.isFav(id) ? '<i class="fas fa-star fav-icon"></i>' : '';
                     h += '<div class="item" id="row-'+i+'" onclick="App.itemClick('+i+')">'+n+icn+'</div>';
                 }
@@ -518,29 +526,44 @@
 
             itemClick: function(i) { this.idx=i; this.zone=2; this.clickItem(); },
             clickItem: function() {
+                if(this.isFolder) { this.playStream(this.seriesEps[this.idx]); return; }
                 var item = this.fullData[this.idx];
-                if(item) this.playStream(item);
+                if(this.mode !== 'series') { if(item) this.playStream(item); return; }
+                if(item) {
+                    this.storedList = [...this.fullData]; this.memIdx = this.idx;
+                    document.getElementById('loader').classList.remove('hide');
+                    this.req(this.creds.h+"/player_api.php?username="+this.creds.u+"&password="+this.creds.p+"&action=get_series_info&series_id="+item.series_id, function(d){
+                        document.getElementById('loader').classList.add('hide');
+                        if(d && d.episodes) {
+                            var eps = [];
+                            for(var k in d.episodes) for(var j=0; j<d.episodes[k].length; j++) eps.push(d.episodes[k][j]);
+                            App.seriesEps = eps; App.fullData = eps; App.isFolder = true; App.renderList();
+                            document.getElementById('meta-title').innerText = "📂 " + (item.name || item.title);
+                        }
+                    });
+                }
             },
 
             playStream: function(item) {
-                var ext = 'ts';
-                var type = 'live';
-                var id = item.stream_id;
+                var ext = (this.mode==='live')?'ts':(item.container_extension||'mp4');
+                var type = (this.mode==='live')?'live':(this.mode==='movie'?'movie':'series');
+                var id = item.stream_id || item.id;
                 var url = this.creds.h+"/"+type+"/"+this.creds.u+"/"+this.creds.p+"/"+id+"."+ext;
                 
                 this.playingId = id; 
-                document.getElementById('meta-title').innerText = item.name;
+                document.getElementById('meta-title').innerText = item.name || item.title;
                 document.getElementById('meta-desc').innerText = "Carregando...";
                 document.getElementById('meta-epg').classList.add('hide');
                 
-                this.req(this.creds.h+"/player_api.php?username="+this.creds.u+"&password="+this.creds.p+"&action=get_short_epg&stream_id="+id, function(d){
-                    if(d && d.epg_listings && d.epg_listings.length > 0) {
-                        var t = d.epg_listings[0].title; try { if(window.atob && /^[A-Za-z0-9+/=]+$/.test(t)) t=atob(t); }catch(e){}
-                        document.getElementById('meta-epg').innerText = t; document.getElementById('meta-epg').classList.remove('hide');
-                    }
-                });
-                
-                PlayerEngine.play(url, true);
+                if(this.mode === 'live') {
+                    this.req(this.creds.h+"/player_api.php?username="+this.creds.u+"&password="+this.creds.p+"&action=get_short_epg&stream_id="+id, function(d){
+                        if(d && d.epg_listings && d.epg_listings.length > 0) {
+                            var t = d.epg_listings[0].title; try { if(window.atob && /^[A-Za-z0-9+/=]+$/.test(t)) t=atob(t); }catch(e){}
+                            document.getElementById('meta-epg').innerText = t; document.getElementById('meta-epg').classList.remove('hide');
+                        }
+                    });
+                }
+                PlayerEngine.play(url, this.mode==='live');
                 document.querySelectorAll('.item').forEach(function(e){e.classList.remove('playing')});
                 var r = document.getElementById('row-'+this.idx); if(r) r.classList.add('playing');
             },
@@ -548,18 +571,19 @@
             syncFocusToPlaying: function() {
                 if(!this.playingId) return;
                 for(var i=0; i<this.fullData.length; i++) {
-                    var id = this.fullData[i].stream_id;
+                    var id = this.fullData[i].stream_id || this.fullData[i].series_id || this.fullData[i].id;
                     if(id == this.playingId) { this.idx = i; this.updateFocus(); return; }
                 }
             },
 
+            // --- RESTAURADO: PESQUISA MANUAL (SEM TIMER) ---
             doSearch: function() {
                 var t = document.getElementById('search').value.toLowerCase();
                 if(t.length < 2) return;
                 document.getElementById('item-list').innerHTML = '<div style="padding:20px">Buscando...</div>';
                 var cb = function(d) {
                     if(d && d!=='ERR_NET') { 
-                        App.fullData = d.filter(function(x){ return (x.name||"").toLowerCase().indexOf(t) > -1 }); 
+                        App.fullData = d.filter(function(x){ return (x.name||x.title||"").toLowerCase().indexOf(t) > -1 }); 
                         App.isFolder = false; 
                         App.renderList(); 
                         
@@ -570,7 +594,7 @@
                 };
                 if(App.globalData) cb(App.globalData);
                 else {
-                    var act = 'get_live_streams';
+                    var act = (App.mode==='live')?'get_live_streams':(App.mode==='movie'?'get_vod_streams':'get_series');
                     App.req(App.creds.h+"/player_api.php?username="+App.creds.u+"&password="+App.creds.p+"&action="+act, function(d){ App.globalData=d; cb(d); });
                 }
             },
@@ -587,6 +611,10 @@
             back: function() {
                 if(document.getElementById('vid-box').classList.contains('fs')) { this.exitFull(); return; }
                 if(this.zone===3) { this.zone=2; this.syncFocusToPlaying(); this.updateFocus(); return; }
+                if(this.zone===2 && this.isFolder) {
+                    this.isFolder = false; this.fullData = this.storedList; this.renderList(true); 
+                    this.idx = this.memIdx; this.updateFocus(); document.getElementById('meta-title').innerText = "R&C GOLD"; return; 
+                }
                 if(this.zone===2) { this.zone=0; this.idx=this.lastCatIdx; this.updateFocus(); return; }
                 if(this.zone===1) { this.zone=2; this.idx=0; this.updateFocus(); return; }
                 if(this.zone===0) { this.setScr(1); return; }
@@ -596,10 +624,7 @@
                 document.querySelectorAll('.focused').forEach(function(e){e.classList.remove('focused')});
                 var el;
                 if(this.scr===0) el=document.getElementById('i'+this.idx);
-                
-                // M0 = TV, M1 = LOGOUT (AJUSTADO)
                 if(this.scr===1) el=document.getElementById('m'+this.idx);
-                
                 if(this.scr===2) {
                     if(this.zone===0) el=document.getElementById('c'+this.idx);
                     if(this.zone===1) el=document.getElementById('search');
@@ -622,19 +647,16 @@
             },
             move: function(d) {
                 if(this.scr===0) { if(d===1&&this.idx<3) this.idx++; if(d===0&&this.idx>0) this.idx--; }
-                
-                // --- NAVEGAÇÃO DASHBOARD SIMPLIFICADA (SÓ CIMA/BAIXO) ---
                 if(this.scr===1) { 
-                    // 0 = TV AO VIVO
-                    // 1 = BOTAO LOGOUT
-                    if(this.idx === 0) {
-                        if(d === 0) this.idx = 1; // Cima -> Logout
+                    if(this.idx <= 2) { 
+                        if(d===3 && this.idx<2) this.idx++; 
+                        if(d===2 && this.idx>0) this.idx--; 
+                        if(d===0) { this.idx = 3; } 
                     }
-                    else if(this.idx === 1) {
-                        if(d === 1) this.idx = 0; // Baixo -> TV
+                    else if(this.idx === 3) { 
+                        if(d===1) { this.idx = 1; } 
                     }
                 }
-                
                 if(this.scr===2) {
                     if(this.zone===3) { 
                         if(d===2) { 
@@ -669,8 +691,8 @@
             enter: function() {
                 if(this.scr===0) this.login();
                 if(this.scr===1) { 
-                    if(this.idx === 1) this.logout();
-                    else this.openMode('live'); 
+                    if(this.idx === 3) this.logout();
+                    else this.openMode(['live','movie','series'][this.idx]); 
                 }
                 if(this.scr===2) {
                     if(this.zone===0) this.loadContent(this.idx);
@@ -686,6 +708,7 @@
         document.addEventListener('keydown', function(e) {
             var k=e.keyCode;
             
+            // --- INPUT RESTAURADO (MANUAL) ---
             if(document.activeElement.tagName === 'INPUT') {
                 if(App.scr === 0) {
                     if(k === 13) { e.preventDefault(); App.login(); return; } 
@@ -693,12 +716,14 @@
                     if(k === 38) { e.preventDefault(); App.move(0); return; } 
                     return; 
                 }
+                // Na busca: Enter para buscar, Seta Baixo para sair
                 if(App.scr === 2) {
                     if(k === 13) { App.doSearch(); return; } 
                     if(k === 40) { e.preventDefault(); App.zone=2; App.idx=0; App.updateFocus(); return; } 
                     return; 
                 }
             }
+            // ------------------------------------
 
             if(App.scr === 0) {
                 if(k===13) {
@@ -711,8 +736,18 @@
                 }
             }
 
-            // APENAS FUTEBOL/TV
-            if(k===48 || k===96) { if(App.scr===2 && App.zone===2) { var it=App.fullData[App.idx]; if(it) FavManager.toggle(it.stream_id); } }
+            // CONTROLES VOD 
+            if(App.scr===2 && App.mode!=='live' && document.getElementById('vid-box').classList.contains('fs')) {
+                var v = document.getElementById('player');
+                if(k===39 || k===417) { v.currentTime += 30; App.osd(">> 30s"); return; } 
+                if(k===37 || k===412) { v.currentTime -= 30; App.osd("<< 30s"); return; } 
+                if(k===13 || k===415 || k===19 || k===179) { 
+                   if(v.paused) { v.play(); App.osd("▶ PLAY"); } else { v.pause(); App.osd("⏸ PAUSE"); }
+                   return;
+                }
+            }
+
+            if(k===48 || k===96) { if(App.scr===2 && App.zone===2) { var it=App.fullData[App.idx]; if(it) FavManager.toggle(it.stream_id||it.series_id); } }
             if(document.getElementById('vid-box').classList.contains('fs')) { 
                 e.preventDefault(); 
                 if(k===13||k===403||k===82||k===27||k===461) App.toggleFull(); 
