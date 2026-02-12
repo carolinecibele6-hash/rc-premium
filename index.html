@@ -3,18 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>R&C GOLD PRO</title>
+    <title>R&C GOLD PRO - Style</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
     <style>
-        /* --- TEMA ORIGINAL RESTAURADO (VISUAL PREMIUM) --- */
+        /* --- TEMA OTIMIZADO PARA TVS LIMITADAS (PHILCO/NETRANGE) --- */
         :root { 
             --bg: #000000; 
             --gold: #FFD700; 
-            --card-bg: linear-gradient(145deg, #1a1a1a, #0d0d0d);
-            --focus-grad: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+            --card-bg: #1a1a1a; /* Removido gradiente pesado */
+            --focus-bg: #FFD700; /* Cor sólida para foco */
         }
         
         * { margin: 0; padding: 0; box-sizing: border-box; outline: none; user-select: none; -webkit-tap-highlight-color: transparent; }
@@ -24,31 +24,29 @@
             color: #fff;
             font-family: 'Montserrat', sans-serif;
             width: 100vw; height: 100vh; overflow: hidden;
-            background-image: radial-gradient(circle at 50% 0%, #222 0%, #000 70%);
+            /* Removido background-image radial para poupar GPU */
         }
 
         .hide { display: none !important; }
         .flex-center { display: flex; align-items: center; justify-content: center; }
         .layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; background: #000; }
 
-        /* CURSOR MÃOZINHA PARA PC */
         button, .smart-card, .cat-item, .item, .power-btn, .key { cursor: pointer; }
 
-        /* FOCO PADRÃO (VOLTOU AO ORIGINAL COM SOMBRA FORTE) */
+        /* --- FOCO LEVE (SEM SOMBRA/GLOW) --- */
         .focused {
             border: 3px solid #fff !important;
-            background: var(--focus-grad) !important;
+            background: var(--focus-bg) !important;
             color: #000 !important;
-            transform: scale(1.05);
+            transform: scale(1.02); /* Scale reduzido para evitar flicker */
             z-index: 50;
-            box-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
+            box-shadow: none !important; /* CRUCIAL: Remove sombra que mata a TV */
         }
         
-        /* CORREÇÃO DO PLAYER */
         #vid-box.focused {
             transform: none !important;
             border: 4px solid var(--gold) !important;
-            box-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+            box-shadow: none !important;
             z-index: 60;
         }
 
@@ -61,11 +59,12 @@
             top: 0 !important; left: 0 !important;
             width: 100vw !important; height: 100vh !important;
             z-index: 9999 !important;
+            background: #000;
         }
 
         .focused i, .focused span, .focused div { color: #000 !important; }
 
-        /* LOGIN RESPONSIVO */
+        /* LOGIN */
         .login-box { 
             width: 400px; max-width: 90%; padding: 40px; 
             background: #111; border: 1px solid #333; 
@@ -83,7 +82,6 @@
             justify-content: space-between;
         }
 
-        /* Ajustes Mobile Dashboard */
         @media (max-width: 768px) {
             #dash-layer { padding: 20px; }
             .dash-grid { flex-direction: column; gap: 20px; overflow-y: auto; }
@@ -107,7 +105,7 @@
 
         .power-btn { 
             font-size: 28px; color: #666; padding: 15px; 
-            border-radius: 50%; transition: all 0.2s; border: 2px solid transparent;
+            border-radius: 50%; transition: none; border: 2px solid transparent; /* Remove transição suave */
         }
         .power-btn.focused { border-radius: 50%; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; }
 
@@ -120,8 +118,7 @@
             border: 2px solid #333;
             border-radius: 20px;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            transition: transform 0.2s;
-            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+            box-shadow: none; /* Remove shadow */
         }
         .smart-card i { font-size: 80px; margin-bottom: 30px; color: #555; }
         .smart-card span { font-size: 20px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; color: #ccc; }
@@ -153,7 +150,6 @@
 
         .col-play { flex: 1; background: #000; display: flex; flex-direction: column; position: relative; }
         
-        /* Vid-box Base */
         .vid-box { width: 100%; height: 45vh; background: #000; position: relative; border-bottom: 2px solid #333; }
         
         video { width: 100%; height: 100%; background: #000; object-fit: contain !important; }
@@ -288,7 +284,10 @@
             },
             play: function(url, isLive) {
                 if(this.url === url && !this.video.paused) return;
-                this.stop(); this.url = url; this.retryCount = 0; this.stallCount = 0;
+                this.stop(); 
+                this.url = url; 
+                this.retryCount = 0; 
+                this.stallCount = 0;
                 this.video.controls = false; 
                 if(isLive) {
                     this.video.classList.add('live');
@@ -297,7 +296,6 @@
 
                 if(isLive || url.includes('.m3u8')) this.startMonitor();
 
-                // Tentativa Nativa Otimizada
                 var canPlayNative = this.video.canPlayType('application/vnd.apple.mpegurl');
                 if (canPlayNative === "probably" || canPlayNative === "maybe") {
                     this.video.src = url; 
@@ -312,16 +310,22 @@
                 }
             },
             startHls: function(url) {
-                if(this.hls) this.hls.destroy();
-                // --- MANTIVE A CONFIGURAÇÃO TURBO PARA FUTEBOL ---
+                if(this.hls) { 
+                    this.hls.destroy(); 
+                    if(this.hls.bufferTimer) clearInterval(this.hls.bufferTimer); 
+                }
+                
+                // --- CONFIGURAÇÃO DE BAIXO CONSUMO DE RAM ---
                 var config = { 
-                    enableWorker: false, 
-                    maxBufferLength: 5, // Buffer alto para TV Philco
-                    maxMaxBufferLength: 10,
+                    enableWorker: false, // Obrigatório para Netrange
+                    maxBufferLength: 5,  // Reduzido para economizar RAM
+                    maxMaxBufferLength: 8, 
                     startLevel: -1, 
-                    manifestLoadingTimeOut: 10000,
-                    capLevelToPlayerSize: true 
+                    manifestLoadingTimeOut: 15000,
+                    capLevelToPlayerSize: true,
+                    backBufferLength: 0 // CRÍTICO: Limpa o buffer de vídeo já assistido
                 };
+                
                 this.hls = new Hls(config);
                 this.hls.loadSource(url);
                 this.hls.attachMedia(this.video);
@@ -355,16 +359,23 @@
                         if(App.mode === 'live' || PlayerEngine.url.includes('.m3u8')) {
                             var v = document.getElementById('player'); v.load(); PlayerEngine.play(PlayerEngine.url, true);
                         }
-                    }, 500); 
-                }, 1000);
+                    }, 1000); 
+                }, 1500);
             },
             stop: function() { 
                 this.stopMonitor(); 
-                if(this.hls) { this.hls.destroy(); this.hls = null; } 
+                if(this.hls) { 
+                    try {
+                        this.hls.stopLoad(); // Para download
+                        this.hls.detachMedia(); // Desconecta
+                        this.hls.destroy(); // Destroi instancia
+                    } catch(e) {}
+                    this.hls = null; 
+                } 
                 if(this.video) { 
                     this.video.pause(); 
-                    this.video.removeAttribute('src'); // Limpeza de memoria importante
-                    this.video.load(); 
+                    this.video.removeAttribute('src'); 
+                    this.video.load(); // Força limpeza do buffer do navegador
                 } 
             }
         };
@@ -508,7 +519,8 @@
 
             renderList: function(keepIdx) {
                 var d = this.fullData;
-                var max = d.length > 200 ? 200 : d.length; 
+                // --- LIMITE REDUZIDO PARA EVITAR OOM ---
+                var max = d.length > 100 ? 100 : d.length; 
                 if(max===0) { document.getElementById('item-list').innerHTML = '<div style="padding:20px;">Vazio</div>'; return; }
                 var h = '';
                 for(var i=0; i<max; i++) {
@@ -576,7 +588,6 @@
                 }
             },
 
-            // --- RESTAURADO: PESQUISA MANUAL (SEM TIMER) ---
             doSearch: function() {
                 var t = document.getElementById('search').value.toLowerCase();
                 if(t.length < 2) return;
@@ -708,7 +719,6 @@
         document.addEventListener('keydown', function(e) {
             var k=e.keyCode;
             
-            // --- INPUT RESTAURADO (MANUAL) ---
             if(document.activeElement.tagName === 'INPUT') {
                 if(App.scr === 0) {
                     if(k === 13) { e.preventDefault(); App.login(); return; } 
@@ -716,14 +726,12 @@
                     if(k === 38) { e.preventDefault(); App.move(0); return; } 
                     return; 
                 }
-                // Na busca: Enter para buscar, Seta Baixo para sair
                 if(App.scr === 2) {
                     if(k === 13) { App.doSearch(); return; } 
                     if(k === 40) { e.preventDefault(); App.zone=2; App.idx=0; App.updateFocus(); return; } 
                     return; 
                 }
             }
-            // ------------------------------------
 
             if(App.scr === 0) {
                 if(k===13) {
@@ -736,7 +744,6 @@
                 }
             }
 
-            // CONTROLES VOD 
             if(App.scr===2 && App.mode!=='live' && document.getElementById('vid-box').classList.contains('fs')) {
                 var v = document.getElementById('player');
                 if(k===39 || k===417) { v.currentTime += 30; App.osd(">> 30s"); return; } 
